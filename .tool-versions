@@ -1,0 +1,4 @@
+golang 1.25.1
+golangci-lint 2.4.0
+gosec 2.22.8
+govulncheck 1.1.4
