@@ -198,15 +198,19 @@ func (n *Normalizer) normalizeClimate(climate string) string {
 }
 
 // convertTempToCelsius converts temperature values to Celsius
+// Ecobee API returns temperatures in tenths of degrees Fahrenheit (e.g., 720 = 72.0°F)
 func (n *Normalizer) convertTempToCelsius(temp *float64) *float64 {
 	if temp == nil {
 		return nil
 	}
 
-	// Assume input is already in Celsius for now
-	// In a real implementation, you might need to convert from Fahrenheit
-	// based on provider or configuration
-	return temp
+	// Convert from tenths of Fahrenheit to Fahrenheit
+	tempF := *temp / 10.0
+
+	// Convert Fahrenheit to Celsius: (°F - 32) × 5/9
+	tempC := (tempF - 32.0) * 5.0 / 9.0
+
+	return &tempC
 }
 
 // normalizeEquipment ensures equipment state is properly formatted

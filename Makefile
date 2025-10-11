@@ -219,7 +219,7 @@ check-golangci-lint-version:
 ## security: Run Gosec security scanner
 security:
 	@echo "Running security scan..."
-	gosec -no-fail -fmt text ./...
+	gosec -fmt text -exclude=G101,G304 -exclude-generated ./...
 	@echo "Security scan completed!"
 
 ## vulnerability-check: Run govulncheck

@@ -4,6 +4,8 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/benvon/thermostat-telemetry-reader/pkg/model"
@@ -266,14 +268,19 @@ func (p *Provider) Auth() model.AuthManager {
 }
 
 // parseColumns parses the column header string from Ecobee
+// The Ecobee API returns a comma-separated string like "zoneHeatTemp,zoneCoolTemp,..."
 func parseColumns(columnStr string) []string {
-	// This is a simplified parser - actual implementation would depend on Ecobee's format
-	// For now, return the expected columns in order
-	return []string{
-		"zoneHeatTemp", "zoneCoolTemp", "zoneAveTemp", "outdoorTemp",
-		"outdoorHumidity", "compHeat1", "compHeat2", "compCool1", "compCool2", "fan",
-		"hvacMode", "zoneClimateRef",
+	if columnStr == "" {
+		return []string{}
 	}
+
+	// Split by comma and trim whitespace
+	columns := strings.Split(columnStr, ",")
+	for i, col := range columns {
+		columns[i] = strings.TrimSpace(col)
+	}
+
+	return columns
 }
 
 // parseFloat parses a string to float64, returning nil if parsing fails
@@ -281,9 +288,13 @@ func parseFloat(s string) *float64 {
 	if s == "" {
 		return nil
 	}
-	// Simplified parsing - would need proper error handling
-	// For now, return nil to indicate no value
-	return nil
+
+	value, err := strconv.ParseFloat(s, 64)
+	if err != nil {
+		return nil
+	}
+
+	return &value
 }
 
 // parseInt parses a string to int, returning nil if parsing fails
@@ -291,7 +302,11 @@ func parseInt(s string) *int {
 	if s == "" {
 		return nil
 	}
-	// Simplified parsing - would need proper error handling
-	// For now, return nil to indicate no value
-	return nil
+
+	value, err := strconv.Atoi(s)
+	if err != nil {
+		return nil
+	}
+
+	return &value
 }

@@ -10,6 +10,7 @@ import (
 )
 
 const (
+	// #nosec G101
 	ecobeeTokenURL = "https://api.ecobee.com/token"
 	ecobeeAPIURL   = "https://api.ecobee.com/1"
 )

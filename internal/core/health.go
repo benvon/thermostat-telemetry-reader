@@ -132,9 +132,19 @@ func (h *HealthChecker) checkProvider(ctx context.Context, provider model.Provid
 func (h *HealthChecker) checkSink(ctx context.Context, sink model.Sink) CheckResult {
 	start := time.Now()
 
-	// Test sink connectivity by trying to open it
-	// Note: This is a simplified check - in practice you might want to test actual writes
-	// For now, we'll assume the sink is healthy if we can create it
+	// Create a short-lived context for the health check
+	checkCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
+	defer cancel()
+
+	// Test sink connectivity by attempting to open it
+	if err := sink.Open(checkCtx); err != nil {
+		return CheckResult{
+			Status:      "fail",
+			Message:     fmt.Sprintf("Sink connectivity failed: %v", err),
+			Duration:    time.Since(start),
+			LastChecked: time.Now(),
+		}
+	}
 
 	return CheckResult{
 		Status:      "pass",

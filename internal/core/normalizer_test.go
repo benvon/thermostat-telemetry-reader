@@ -56,6 +56,11 @@ func TestNormalizeRuntime5m(t *testing.T) {
 	}
 
 	now := time.Now()
+	// Ecobee API returns temperatures in tenths of degrees Fahrenheit
+	// 680 = 68.0°F = 20.0°C
+	// 770 = 77.0°F = 25.0°C
+	// 725 = 72.5°F = 22.5°C
+	// 590 = 59.0°F = 15.0°C
 	runtime := model.RuntimeRow{
 		ThermostatRef: model.ThermostatRef{
 			ID:          "test-thermostat",
@@ -66,18 +71,18 @@ func TestNormalizeRuntime5m(t *testing.T) {
 		EventTime:       now,
 		Mode:            "heat",
 		Climate:         "home",
-		SetHeatC:        floatPtr(20.0),
-		SetCoolC:        floatPtr(25.0),
-		AvgTempC:        floatPtr(22.5),
-		OutdoorTempC:    floatPtr(15.0),
+		SetHeatC:        floatPtr(680.0), // 68.0°F in tenths
+		SetCoolC:        floatPtr(770.0), // 77.0°F in tenths
+		AvgTempC:        floatPtr(725.0), // 72.5°F in tenths
+		OutdoorTempC:    floatPtr(590.0), // 59.0°F in tenths
 		OutdoorHumidity: intPtr(60),
 		Equipment: map[string]bool{
 			"compHeat1": true,
 			"fan":       false,
 		},
 		Sensors: map[string]float64{
-			"sensor1": 22.5,
-			"sensor2": 22.0,
+			"sensor1": 725.0, // 72.5°F in tenths
+			"sensor2": 716.0, // 71.6°F in tenths = 22.0°C
 		},
 	}
 
@@ -105,17 +110,28 @@ func TestNormalizeRuntime5m(t *testing.T) {
 	if canonical.Climate != "Home" {
 		t.Errorf("Expected climate Home, got %s", canonical.Climate)
 	}
-	if canonical.SetHeatC == nil || *canonical.SetHeatC != 20.0 {
-		t.Errorf("Expected SetHeatC 20.0, got %v", canonical.SetHeatC)
+
+	// Use tolerance for floating point temperature comparisons
+	const epsilon = 0.01
+	if canonical.SetHeatC == nil {
+		t.Error("Expected SetHeatC to not be nil")
+	} else if *canonical.SetHeatC < 20.0-epsilon || *canonical.SetHeatC > 20.0+epsilon {
+		t.Errorf("Expected SetHeatC 20.0, got %f", *canonical.SetHeatC)
 	}
-	if canonical.SetCoolC == nil || *canonical.SetCoolC != 25.0 {
-		t.Errorf("Expected SetCoolC 25.0, got %v", canonical.SetCoolC)
+	if canonical.SetCoolC == nil {
+		t.Error("Expected SetCoolC to not be nil")
+	} else if *canonical.SetCoolC < 25.0-epsilon || *canonical.SetCoolC > 25.0+epsilon {
+		t.Errorf("Expected SetCoolC 25.0, got %f", *canonical.SetCoolC)
 	}
-	if canonical.AvgTempC == nil || *canonical.AvgTempC != 22.5 {
-		t.Errorf("Expected AvgTempC 22.5, got %v", canonical.AvgTempC)
+	if canonical.AvgTempC == nil {
+		t.Error("Expected AvgTempC to not be nil")
+	} else if *canonical.AvgTempC < 22.5-epsilon || *canonical.AvgTempC > 22.5+epsilon {
+		t.Errorf("Expected AvgTempC 22.5, got %f", *canonical.AvgTempC)
 	}
-	if canonical.OutdoorTempC == nil || *canonical.OutdoorTempC != 15.0 {
-		t.Errorf("Expected OutdoorTempC 15.0, got %v", canonical.OutdoorTempC)
+	if canonical.OutdoorTempC == nil {
+		t.Error("Expected OutdoorTempC to not be nil")
+	} else if *canonical.OutdoorTempC < 15.0-epsilon || *canonical.OutdoorTempC > 15.0+epsilon {
+		t.Errorf("Expected OutdoorTempC 15.0, got %f", *canonical.OutdoorTempC)
 	}
 	if canonical.OutdoorHumidity == nil || *canonical.OutdoorHumidity != 60 {
 		t.Errorf("Expected OutdoorHumidity 60, got %v", canonical.OutdoorHumidity)
@@ -126,10 +142,11 @@ func TestNormalizeRuntime5m(t *testing.T) {
 	if canonical.Equipment["fan"] != false {
 		t.Error("Expected fan to be false")
 	}
-	if canonical.Sensors["sensor1"] != 22.5 {
+	// Sensor temperature assertions (using same epsilon)
+	if canonical.Sensors["sensor1"] < 22.5-epsilon || canonical.Sensors["sensor1"] > 22.5+epsilon {
 		t.Errorf("Expected sensor1 22.5, got %f", canonical.Sensors["sensor1"])
 	}
-	if canonical.Sensors["sensor2"] != 22.0 {
+	if canonical.Sensors["sensor2"] < 22.0-epsilon || canonical.Sensors["sensor2"] > 22.0+epsilon {
 		t.Errorf("Expected sensor2 22.0, got %f", canonical.Sensors["sensor2"])
 	}
 }
@@ -368,6 +385,187 @@ func TestNormalizeDeviceSnapshot(t *testing.T) {
 	if len(canonical.EventsActive) != 1 {
 		t.Errorf("Expected 1 active event, got %d", len(canonical.EventsActive))
 	}
+}
+
+func TestNormalizeEquipment(t *testing.T) {
+	normalizer, err := NewNormalizer("UTC")
+	if err != nil {
+		t.Fatalf("Failed to create normalizer: %v", err)
+	}
+
+	t.Run("nil equipment", func(t *testing.T) {
+		result := normalizer.normalizeEquipment(nil)
+		if result != nil {
+			t.Error("Expected nil result for nil input")
+		}
+	})
+
+	t.Run("empty equipment", func(t *testing.T) {
+		result := normalizer.normalizeEquipment(map[string]bool{})
+		if len(result) != 0 {
+			t.Errorf("Expected empty map, got %d entries", len(result))
+		}
+	})
+
+	t.Run("normalized keys", func(t *testing.T) {
+		input := map[string]bool{
+			"compheat1": true,
+			"Fan":       true,
+		}
+		result := normalizer.normalizeEquipment(input)
+
+		if result["compHeat1"] != true {
+			t.Error("Expected compHeat1 to be normalized and true")
+		}
+		if result["fan"] != true {
+			t.Error("Expected fan to be normalized and true")
+		}
+	})
+
+	t.Run("unknown equipment key triggers warning", func(t *testing.T) {
+		input := map[string]bool{
+			"unknownEquipment": true,
+		}
+		result := normalizer.normalizeEquipment(input)
+
+		// Should still preserve unknown keys
+		if result["unknownEquipment"] != true {
+			t.Error("Expected unknown key to be preserved")
+		}
+	})
+}
+
+func TestNormalizeSensors(t *testing.T) {
+	normalizer, err := NewNormalizer("UTC")
+	if err != nil {
+		t.Fatalf("Failed to create normalizer: %v", err)
+	}
+
+	t.Run("nil sensors", func(t *testing.T) {
+		result := normalizer.normalizeSensors(nil)
+		if result != nil {
+			t.Error("Expected nil result for nil input")
+		}
+	})
+
+	t.Run("empty sensors", func(t *testing.T) {
+		result := normalizer.normalizeSensors(map[string]float64{})
+		if len(result) != 0 {
+			t.Errorf("Expected empty map, got %d entries", len(result))
+		}
+	})
+
+	t.Run("temperature conversion", func(t *testing.T) {
+		// Ecobee format: 720 = 72.0°F = 22.2°C
+		input := map[string]float64{
+			"sensor1": 720.0,
+		}
+		result := normalizer.normalizeSensors(input)
+
+		const epsilon = 0.1
+		expected := 22.2
+		if result["sensor1"] < expected-epsilon || result["sensor1"] > expected+epsilon {
+			t.Errorf("Expected sensor1 around %.1f°C, got %.1f°C", expected, result["sensor1"])
+		}
+	})
+}
+
+func TestConvertTempToCelsius(t *testing.T) {
+	normalizer, err := NewNormalizer("UTC")
+	if err != nil {
+		t.Fatalf("Failed to create normalizer: %v", err)
+	}
+
+	tests := []struct {
+		name     string
+		input    *float64
+		expected *float64
+		epsilon  float64
+	}{
+		{
+			name:     "nil input",
+			input:    nil,
+			expected: nil,
+		},
+		{
+			name:     "freezing point: 32°F = 0°C",
+			input:    floatPtr(320.0), // 32.0°F in tenths
+			expected: floatPtr(0.0),
+			epsilon:  0.01,
+		},
+		{
+			name:     "room temp: 72°F = 22.2°C",
+			input:    floatPtr(720.0), // 72.0°F in tenths
+			expected: floatPtr(22.2),
+			epsilon:  0.1,
+		},
+		{
+			name:     "hot: 98.6°F = 37°C",
+			input:    floatPtr(986.0), // 98.6°F in tenths
+			expected: floatPtr(37.0),
+			epsilon:  0.1,
+		},
+		{
+			name:     "cold: -40°F = -40°C",
+			input:    floatPtr(-400.0), // -40.0°F in tenths
+			expected: floatPtr(-40.0),
+			epsilon:  0.01,
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			result := normalizer.convertTempToCelsius(tt.input)
+
+			if tt.expected == nil {
+				if result != nil {
+					t.Errorf("Expected nil, got %v", *result)
+				}
+				return
+			}
+
+			if result == nil {
+				t.Errorf("Expected %f, got nil", *tt.expected)
+				return
+			}
+
+			if *result < *tt.expected-tt.epsilon || *result > *tt.expected+tt.epsilon {
+				t.Errorf("Expected %f ± %f, got %f", *tt.expected, tt.epsilon, *result)
+			}
+		})
+	}
+}
+
+func TestConvertToUTC(t *testing.T) {
+	normalizer, err := NewNormalizer("America/New_York")
+	if err != nil {
+		t.Fatalf("Failed to create normalizer: %v", err)
+	}
+
+	t.Run("zero time", func(t *testing.T) {
+		result := normalizer.convertToUTC(time.Time{})
+		if !result.IsZero() {
+			t.Error("Expected zero time to remain zero")
+		}
+	})
+
+	t.Run("converts to UTC", func(t *testing.T) {
+		// Create a time in EST
+		est, _ := time.LoadLocation("America/New_York")
+		localTime := time.Date(2024, 1, 15, 10, 0, 0, 0, est)
+
+		result := normalizer.convertToUTC(localTime)
+
+		if result.Location() != time.UTC {
+			t.Error("Expected result to be in UTC")
+		}
+
+		// Verify the time is correct (EST is UTC-5)
+		expectedHour := 15 // 10 AM EST = 3 PM UTC
+		if result.Hour() != expectedHour {
+			t.Errorf("Expected hour %d, got %d", expectedHour, result.Hour())
+		}
+	})
 }
 
 // Helper functions for creating pointers

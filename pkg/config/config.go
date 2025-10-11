@@ -4,7 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
-	"strings"
+	"regexp"
 	"time"
 
 	"gopkg.in/yaml.v3"
@@ -71,13 +71,33 @@ func LoadConfig(configPath string) (*Config, error) {
 
 // substituteEnvVars replaces ${VAR} and ${VAR:-default} patterns with environment variable values
 func substituteEnvVars(content string) string {
-	// Replace ${VAR} patterns
-	content = strings.ReplaceAll(content, "${", "")
-	content = strings.ReplaceAll(content, "}", "")
+	// Pattern to match ${VAR} and ${VAR:-default}
+	pattern := regexp.MustCompile(`\$\{([^}:]+)(:-([^}]*))?\}`)
 
-	// For now, implement a simple substitution
-	// In a production system, you might want to use a more sophisticated templating library
-	return content
+	// Replace all matches
+	result := pattern.ReplaceAllStringFunc(content, func(match string) string {
+		// Extract variable name and default value
+		submatches := pattern.FindStringSubmatch(match)
+		if len(submatches) < 2 {
+			return match
+		}
+
+		varName := submatches[1]
+		defaultValue := ""
+		if len(submatches) >= 4 {
+			defaultValue = submatches[3]
+		}
+
+		// Look up environment variable
+		if value, exists := os.LookupEnv(varName); exists {
+			return value
+		}
+
+		// Return default value if provided
+		return defaultValue
+	})
+
+	return result
 }
 
 // setDefaults sets default values for configuration fields
@@ -231,11 +251,11 @@ func CreateExampleConfig(path string) error {
 	}
 
 	// Ensure directory exists
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
 
-	if err := os.WriteFile(path, data, 0644); err != nil {
+	if err := os.WriteFile(path, data, 0600); err != nil {
 		return fmt.Errorf("writing example config: %w", err)
 	}
 

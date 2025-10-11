@@ -7,6 +7,81 @@ import (
 	"time"
 )
 
+func TestSubstituteEnvVars(t *testing.T) {
+	tests := []struct {
+		name     string
+		input    string
+		envVars  map[string]string
+		expected string
+	}{
+		{
+			name:     "simple variable substitution",
+			input:    "client_id: ${TEST_CLIENT_ID}",
+			envVars:  map[string]string{"TEST_CLIENT_ID": "my-client-123"},
+			expected: "client_id: my-client-123",
+		},
+		{
+			name:     "variable with default - env var exists",
+			input:    "api_key: ${TEST_API_KEY:-default-key}",
+			envVars:  map[string]string{"TEST_API_KEY": "real-key"},
+			expected: "api_key: real-key",
+		},
+		{
+			name:     "variable with default - env var missing",
+			input:    "api_key: ${MISSING_KEY:-default-key}",
+			envVars:  map[string]string{},
+			expected: "api_key: default-key",
+		},
+		{
+			name:     "variable missing no default",
+			input:    "token: ${MISSING_TOKEN}",
+			envVars:  map[string]string{},
+			expected: "token: ",
+		},
+		{
+			name:     "multiple variables",
+			input:    "url: ${HOST}:${PORT}",
+			envVars:  map[string]string{"HOST": "localhost", "PORT": "9200"},
+			expected: "url: localhost:9200",
+		},
+		{
+			name:     "no variables",
+			input:    "plain: text",
+			envVars:  map[string]string{},
+			expected: "plain: text",
+		},
+		{
+			name:     "empty default value",
+			input:    "value: ${VAR:-}",
+			envVars:  map[string]string{},
+			expected: "value: ",
+		},
+		{
+			name:     "default with special characters",
+			input:    "url: ${ES_URL:-https://localhost:9200}",
+			envVars:  map[string]string{},
+			expected: "url: https://localhost:9200",
+		},
+	}
+
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			// Set up environment variables
+			for key, value := range tt.envVars {
+				t.Setenv(key, value)
+			}
+
+			// Run substitution
+			result := substituteEnvVars(tt.input)
+
+			// Verify result
+			if result != tt.expected {
+				t.Errorf("substituteEnvVars() = %q, want %q", result, tt.expected)
+			}
+		})
+	}
+}
+
 func TestLoadConfig(t *testing.T) {
 	// Create a temporary config file
 	tempDir := t.TempDir()

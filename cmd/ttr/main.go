@@ -243,8 +243,11 @@ func startHealthServers(ctx context.Context, app *Application, cfg *config.Confi
 	healthMux.Handle("/metrics", app.Metrics.ServeMetrics())
 
 	healthServer := &http.Server{
-		Addr:    fmt.Sprintf(":%d", cfg.TTR.HealthPort),
-		Handler: healthMux,
+		Addr:              fmt.Sprintf(":%d", cfg.TTR.HealthPort),
+		Handler:           healthMux,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
 	}
 
 	go func() {
@@ -259,8 +262,11 @@ func startHealthServers(ctx context.Context, app *Application, cfg *config.Confi
 	metricsMux.Handle("/metrics", app.Metrics.ServeMetrics())
 
 	metricsServer := &http.Server{
-		Addr:    fmt.Sprintf(":%d", cfg.TTR.MetricsPort),
-		Handler: metricsMux,
+		Addr:              fmt.Sprintf(":%d", cfg.TTR.MetricsPort),
+		Handler:           metricsMux,
+		ReadHeaderTimeout: 10 * time.Second,
+		ReadTimeout:       30 * time.Second,
+		WriteTimeout:      30 * time.Second,
 	}
 
 	go func() {
