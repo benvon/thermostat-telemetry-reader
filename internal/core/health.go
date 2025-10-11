@@ -2,6 +2,7 @@ package core
 
 import (
 	"context"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"sync"
@@ -27,10 +28,20 @@ type HealthStatus struct {
 
 // CheckResult represents the result of a health check
 type CheckResult struct {
-	Status      string        `json:"status"` // "pass", "fail", "warn"
-	Message     string        `json:"message,omitempty"`
-	Duration    time.Duration `json:"duration_ms"`
-	LastChecked time.Time     `json:"last_checked"`
+	Status      string `json:"status"` // "pass", "fail", "warn"
+	Message     string `json:"message,omitempty"`
+	DurationMS  int64  `json:"duration_ms"`
+	LastChecked string `json:"last_checked"`
+}
+
+// newCheckResult creates a CheckResult with proper formatting
+func newCheckResult(status, message string, duration time.Duration) CheckResult {
+	return CheckResult{
+		Status:      status,
+		Message:     message,
+		DurationMS:  duration.Milliseconds(),
+		LastChecked: time.Now().Format(time.RFC3339),
+	}
 }
 
 // NewHealthChecker creates a new health checker
@@ -100,32 +111,17 @@ func (h *HealthChecker) checkProvider(ctx context.Context, provider model.Provid
 	if !auth.IsTokenValid(ctx) {
 		// Try to refresh token
 		if err := auth.RefreshToken(ctx); err != nil {
-			return CheckResult{
-				Status:      "fail",
-				Message:     fmt.Sprintf("Authentication failed: %v", err),
-				Duration:    time.Since(start),
-				LastChecked: time.Now(),
-			}
+			return newCheckResult("fail", fmt.Sprintf("Authentication failed: %v", err), time.Since(start))
 		}
 	}
 
 	// Test basic connectivity by listing thermostats
 	_, err := provider.ListThermostats(ctx)
 	if err != nil {
-		return CheckResult{
-			Status:      "warn",
-			Message:     fmt.Sprintf("Provider connectivity issue: %v", err),
-			Duration:    time.Since(start),
-			LastChecked: time.Now(),
-		}
+		return newCheckResult("warn", fmt.Sprintf("Provider connectivity issue: %v", err), time.Since(start))
 	}
 
-	return CheckResult{
-		Status:      "pass",
-		Message:     "Provider is healthy",
-		Duration:    time.Since(start),
-		LastChecked: time.Now(),
-	}
+	return newCheckResult("pass", "Provider is healthy", time.Since(start))
 }
 
 // checkSink performs a health check on a sink
@@ -138,20 +134,10 @@ func (h *HealthChecker) checkSink(ctx context.Context, sink model.Sink) CheckRes
 
 	// Test sink connectivity by attempting to open it
 	if err := sink.Open(checkCtx); err != nil {
-		return CheckResult{
-			Status:      "fail",
-			Message:     fmt.Sprintf("Sink connectivity failed: %v", err),
-			Duration:    time.Since(start),
-			LastChecked: time.Now(),
-		}
+		return newCheckResult("fail", fmt.Sprintf("Sink connectivity failed: %v", err), time.Since(start))
 	}
 
-	return CheckResult{
-		Status:      "pass",
-		Message:     "Sink is healthy",
-		Duration:    time.Since(start),
-		LastChecked: time.Now(),
-	}
+	return newCheckResult("pass", "Sink is healthy", time.Since(start))
 }
 
 // ServeHealth provides an HTTP handler for health checks
@@ -172,31 +158,11 @@ func (h *HealthChecker) ServeHealth() http.Handler {
 			w.WriteHeader(http.StatusServiceUnavailable)
 		}
 
-		// Write JSON response
-		_, _ = fmt.Fprintf(w, `{
-	"status": "%s",
-	"timestamp": "%s",
-	"checks": {
-`, status.Status, status.Timestamp.Format(time.RFC3339))
-
-		first := true
-		for name, check := range status.Checks {
-			if !first {
-				_, _ = fmt.Fprintf(w, ",\n")
-			}
-			first = false
-
-			_, _ = fmt.Fprintf(w, `		"%s": {
-			"status": "%s",
-			"message": "%s",
-			"duration_ms": %d,
-			"last_checked": "%s"
-		}`, name, check.Status, check.Message, check.Duration.Milliseconds(), check.LastChecked.Format(time.RFC3339))
+		// Encode response as JSON
+		if err := json.NewEncoder(w).Encode(status); err != nil {
+			// Log error but don't change status code (already written)
+			_, _ = fmt.Fprintf(w, `{"error": "failed to encode health status"}`)
 		}
-
-		_, _ = fmt.Fprintf(w, `
-	}
-}`)
 	})
 }
 
@@ -311,52 +277,10 @@ func (m *MetricsCollector) ServeMetrics() http.Handler {
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusOK)
 
-		// Simple JSON output
-		_, _ = fmt.Fprintf(w, `{
-	"uptime_seconds": %.2f,
-	"providers": {
-`, metrics["uptime_seconds"])
-
-		providers := metrics["providers"].(map[string]any)
-		first := true
-		for name, providerMetrics := range providers {
-			if !first {
-				_, _ = fmt.Fprintf(w, ",\n")
-			}
-			first = false
-
-			pm := providerMetrics.(map[string]any)
-			_, _ = fmt.Fprintf(w, `		"%s": {
-			"requests_total": %d,
-			"errors_total": %d,
-			"last_request_time": "%s"
-		}`, name, pm["requests_total"], pm["errors_total"], pm["last_request_time"])
+		// Encode response as JSON
+		if err := json.NewEncoder(w).Encode(metrics); err != nil {
+			// Log error but don't change status code (already written)
+			_, _ = fmt.Fprintf(w, `{"error": "failed to encode metrics"}`)
 		}
-
-		_, _ = fmt.Fprintf(w, `
-	},
-	"sinks": {
-`)
-
-		sinks := metrics["sinks"].(map[string]any)
-		first = true
-		for name, sinkMetrics := range sinks {
-			if !first {
-				_, _ = fmt.Fprintf(w, ",\n")
-			}
-			first = false
-
-			sm := sinkMetrics.(map[string]any)
-			_, _ = fmt.Fprintf(w, `		"%s": {
-			"writes_total": %d,
-			"errors_total": %d,
-			"documents_written": %d,
-			"last_write_time": "%s"
-		}`, name, sm["writes_total"], sm["errors_total"], sm["documents_written"], sm["last_write_time"])
-		}
-
-		_, _ = fmt.Fprintf(w, `
-	}
-}`)
 	})
 }
