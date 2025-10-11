@@ -1,0 +1,24 @@
+# Simple configuration example for local development
+ttr:
+  timezone: "UTC"
+  poll_interval: "1m"        # Poll every minute for testing
+  backfill_window: "24h"     # Backfill only 1 day for testing
+  log_level: "debug"         # Verbose logging for development
+  health_port: 8080
+  metrics_port: 9090
+
+providers:
+  - name: "ecobee"
+    enabled: true
+    settings:
+      client_id: "your_ecobee_client_id_here"
+      refresh_token: "your_ecobee_refresh_token_here"
+
+sinks:
+  - name: "elasticsearch"
+    enabled: true
+    settings:
+      url: "http://localhost:9200"  # Local Elasticsearch
+      # api_key: ""                 # No auth for local development
+      index_prefix: "ttr-dev"       # Development index prefix
+      create_templates: true
