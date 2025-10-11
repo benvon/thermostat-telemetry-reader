@@ -2,6 +2,7 @@ package core
 
 import (
 	"fmt"
+	"log/slog"
 	"strings"
 	"time"
 
@@ -10,7 +11,12 @@ import (
 
 // Normalizer converts provider-specific data to canonical format
 type Normalizer struct {
-	timezone *time.Location
+	timezone        *time.Location
+	modeMap         map[string]string
+	climateMap      map[string]string
+	equipmentKeyMap map[string]string
+	eventKindMap    map[string]string
+	logger          *slog.Logger
 }
 
 // NewNormalizer creates a new normalizer
@@ -20,8 +26,67 @@ func NewNormalizer(timezone string) (*Normalizer, error) {
 		return nil, fmt.Errorf("loading timezone %s: %w", timezone, err)
 	}
 
+	// Use default logger if none provided
+	logger := slog.Default()
+
 	return &Normalizer{
 		timezone: loc,
+		logger:   logger,
+		modeMap: map[string]string{
+			"heat":      "heat",
+			"heating":   "heat",
+			"cool":      "cool",
+			"cooling":   "cool",
+			"auto":      "auto",
+			"automatic": "auto",
+			"off":       "off",
+			"disabled":  "off",
+		},
+		climateMap: map[string]string{
+			"home":     "Home",
+			"Home":     "Home",
+			"HOME":     "Home",
+			"away":     "Away",
+			"Away":     "Away",
+			"AWAY":     "Away",
+			"sleep":    "Sleep",
+			"Sleep":    "Sleep",
+			"SLEEP":    "Sleep",
+			"sleeping": "Sleep",
+			"vacation": "Vacation",
+			"Vacation": "Vacation",
+			"VACATION": "Vacation",
+		},
+		equipmentKeyMap: map[string]string{
+			"compHeat1":   "compHeat1",
+			"compheat1":   "compHeat1",
+			"comp_heat_1": "compHeat1",
+			"compHeat2":   "compHeat2",
+			"compheat2":   "compHeat2",
+			"comp_heat_2": "compHeat2",
+			"compCool1":   "compCool1",
+			"compcool1":   "compCool1",
+			"comp_cool_1": "compCool1",
+			"compCool2":   "compCool2",
+			"compcool2":   "compCool2",
+			"comp_cool_2": "compCool2",
+			"fan":         "fan",
+			"Fan":         "fan",
+			"FAN":         "fan",
+		},
+		eventKindMap: map[string]string{
+			"hold":            "hold",
+			"temp_hold":       "hold",
+			"temporary_hold":  "hold",
+			"vacation":        "vacation",
+			"vacation_hold":   "vacation",
+			"resume":          "resume",
+			"resume_schedule": "resume",
+			"schedule":        "schedule",
+			"scheduled":       "schedule",
+			"manual":          "manual",
+			"manual_override": "manual",
+		},
 	}, nil
 }
 
@@ -100,22 +165,18 @@ func (n *Normalizer) normalizeMode(mode string) string {
 		return "off"
 	}
 
-	// Convert to lowercase for comparison
 	modeLower := strings.ToLower(mode)
-
-	// Map common variations to canonical values
-	switch modeLower {
-	case "heat", "heating":
-		return "heat"
-	case "cool", "cooling":
-		return "cool"
-	case "auto", "automatic":
-		return "auto"
-	case "off", "disabled":
-		return "off"
-	default:
-		return modeLower // Keep original if not recognized
+	if normalized, ok := n.modeMap[modeLower]; ok {
+		return normalized
 	}
+
+	// Log unmapped value for visibility
+	n.logger.Warn("Unmapped mode value encountered",
+		"original", mode,
+		"lowercase", modeLower,
+		"suggestion", "add to modeMap if this is a valid mode")
+
+	return modeLower // Keep original if not recognized
 }
 
 // normalizeClimate converts provider-specific climate strings to canonical format
@@ -124,19 +185,16 @@ func (n *Normalizer) normalizeClimate(climate string) string {
 		return "Home"
 	}
 
-	// Map common climate variations
-	switch climate {
-	case "home", "Home", "HOME":
-		return "Home"
-	case "away", "Away", "AWAY":
-		return "Away"
-	case "sleep", "Sleep", "SLEEP", "sleeping":
-		return "Sleep"
-	case "vacation", "Vacation", "VACATION":
-		return "Vacation"
-	default:
-		return climate // Keep original if not recognized
+	if normalized, ok := n.climateMap[climate]; ok {
+		return normalized
 	}
+
+	// Log unmapped value for visibility
+	n.logger.Warn("Unmapped climate value encountered",
+		"original", climate,
+		"suggestion", "add to climateMap if this is a valid climate")
+
+	return climate // Keep original if not recognized
 }
 
 // convertTempToCelsius converts temperature values to Celsius
@@ -169,20 +227,16 @@ func (n *Normalizer) normalizeEquipment(equipment map[string]bool) map[string]bo
 
 // normalizeEquipmentKey converts equipment key names to canonical format
 func (n *Normalizer) normalizeEquipmentKey(key string) string {
-	switch key {
-	case "compHeat1", "compheat1", "comp_heat_1":
-		return "compHeat1"
-	case "compHeat2", "compheat2", "comp_heat_2":
-		return "compHeat2"
-	case "compCool1", "compcool1", "comp_cool_1":
-		return "compCool1"
-	case "compCool2", "compcool2", "comp_cool_2":
-		return "compCool2"
-	case "fan", "Fan", "FAN":
-		return "fan"
-	default:
-		return key
+	if normalized, ok := n.equipmentKeyMap[key]; ok {
+		return normalized
 	}
+
+	// Log unmapped value for visibility
+	n.logger.Warn("Unmapped equipment key encountered",
+		"original", key,
+		"suggestion", "add to equipmentKeyMap if this is a valid equipment key")
+
+	return key
 }
 
 // normalizeSensors ensures sensor data is properly formatted
@@ -233,46 +287,43 @@ func (n *Normalizer) normalizeEventKind(kind string) string {
 	}
 
 	kindLower := strings.ToLower(kind)
-	switch kindLower {
-	case "hold", "temp_hold", "temporary_hold":
-		return "hold"
-	case "vacation", "vacation_hold":
-		return "vacation"
-	case "resume", "resume_schedule":
-		return "resume"
-	case "schedule", "scheduled":
-		return "schedule"
-	case "manual", "manual_override":
-		return "manual"
-	default:
-		return "unknown"
+	if normalized, ok := n.eventKindMap[kindLower]; ok {
+		return normalized
 	}
+
+	// Log unmapped value for visibility
+	n.logger.Warn("Unmapped event kind encountered",
+		"original", kind,
+		"lowercase", kindLower,
+		"suggestion", "add to eventKindMap if this is a valid event kind")
+
+	return "unknown"
 }
 
 // inferEventKindFromName tries to infer event kind from the event name
 func (n *Normalizer) inferEventKindFromName(name string) string {
 	nameLower := strings.ToLower(name)
 
-	if contains(nameLower, "hold") {
-		if contains(nameLower, "vacation") {
+	if strings.Contains(nameLower, "hold") {
+		if strings.Contains(nameLower, "vacation") {
 			return "vacation"
 		}
 		return "hold"
 	}
 
-	if contains(nameLower, "vacation") {
+	if strings.Contains(nameLower, "vacation") {
 		return "vacation"
 	}
 
-	if contains(nameLower, "resume") {
+	if strings.Contains(nameLower, "resume") {
 		return "resume"
 	}
 
-	if contains(nameLower, "schedule") {
+	if strings.Contains(nameLower, "schedule") {
 		return "schedule"
 	}
 
-	if contains(nameLower, "manual") {
+	if strings.Contains(nameLower, "manual") {
 		return "manual"
 	}
 
@@ -284,19 +335,4 @@ func (n *Normalizer) createProviderData(provider string, data any) map[string]an
 	return map[string]any{
 		provider: data,
 	}
-}
-
-// contains checks if a string contains a substring (case-insensitive)
-func contains(s, substr string) bool {
-	return indexOf(s, substr) >= 0
-}
-
-// indexOf finds the index of a substring in a string
-func indexOf(s, substr string) int {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return i
-		}
-	}
-	return -1
 }
