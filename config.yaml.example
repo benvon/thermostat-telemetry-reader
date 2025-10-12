@@ -1,0 +1,23 @@
+ttr:
+  timezone: "America/Chicago"
+  poll_interval: "5m"
+  backfill_window: "168h"
+  log_level: "info"
+  health_port: 8080
+  metrics_port: 9090
+
+providers:
+  - name: "ecobee"
+    enabled: true
+    settings:
+      client_id: "${ECOBEE_CLIENT_ID}"
+      refresh_token: "${ECOBEE_REFRESH_TOKEN}"
+
+sinks:
+  - name: "elasticsearch"
+    enabled: true
+    settings:
+      url: "https://es.example:9200"
+      api_key: "${ELASTIC_API_KEY}"
+      index_prefix: "ttr"
+      create_templates: true
