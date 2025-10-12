@@ -15,9 +15,8 @@ func TestMetricsCollector(t *testing.T) {
 
 		// Initially should have no metrics
 		initialMetrics := metrics.GetMetrics()
-		providers := initialMetrics["providers"].(map[string]any)
-		if len(providers) != 0 {
-			t.Errorf("Expected no providers initially, got %d", len(providers))
+		if len(initialMetrics.Providers) != 0 {
+			t.Errorf("Expected no providers initially, got %d", len(initialMetrics.Providers))
 		}
 
 		// Record some provider requests
@@ -27,20 +26,19 @@ func TestMetricsCollector(t *testing.T) {
 
 		// Verify counts
 		currentMetrics := metrics.GetMetrics()
-		providers = currentMetrics["providers"].(map[string]any)
 
-		if len(providers) != 2 {
-			t.Errorf("Expected 2 providers, got %d", len(providers))
+		if len(currentMetrics.Providers) != 2 {
+			t.Errorf("Expected 2 providers, got %d", len(currentMetrics.Providers))
 		}
 
-		ecobeeMetrics := providers["ecobee"].(map[string]any)
-		if ecobeeMetrics["requests_total"] != int64(2) {
-			t.Errorf("Expected 2 ecobee requests, got %v", ecobeeMetrics["requests_total"])
+		ecobeeMetrics := currentMetrics.Providers["ecobee"]
+		if ecobeeMetrics.RequestsTotal != int64(2) {
+			t.Errorf("Expected 2 ecobee requests, got %v", ecobeeMetrics.RequestsTotal)
 		}
 
-		nestMetrics := providers["nest"].(map[string]any)
-		if nestMetrics["requests_total"] != int64(1) {
-			t.Errorf("Expected 1 nest request, got %v", nestMetrics["requests_total"])
+		nestMetrics := currentMetrics.Providers["nest"]
+		if nestMetrics.RequestsTotal != int64(1) {
+			t.Errorf("Expected 1 nest request, got %v", nestMetrics.RequestsTotal)
 		}
 	})
 
@@ -52,14 +50,13 @@ func TestMetricsCollector(t *testing.T) {
 		metrics.RecordProviderError("ecobee")
 
 		currentMetrics := metrics.GetMetrics()
-		providers := currentMetrics["providers"].(map[string]any)
-		ecobeeMetrics := providers["ecobee"].(map[string]any)
+		ecobeeMetrics := currentMetrics.Providers["ecobee"]
 
-		if ecobeeMetrics["requests_total"] != int64(2) {
-			t.Errorf("Expected 2 requests, got %v", ecobeeMetrics["requests_total"])
+		if ecobeeMetrics.RequestsTotal != int64(2) {
+			t.Errorf("Expected 2 requests, got %v", ecobeeMetrics.RequestsTotal)
 		}
-		if ecobeeMetrics["errors_total"] != int64(1) {
-			t.Errorf("Expected 1 error, got %v", ecobeeMetrics["errors_total"])
+		if ecobeeMetrics.ErrorsTotal != int64(1) {
+			t.Errorf("Expected 1 error, got %v", ecobeeMetrics.ErrorsTotal)
 		}
 	})
 
@@ -72,26 +69,25 @@ func TestMetricsCollector(t *testing.T) {
 		metrics.RecordSinkWrite("prometheus", 3)
 
 		currentMetrics := metrics.GetMetrics()
-		sinks := currentMetrics["sinks"].(map[string]any)
 
-		if len(sinks) != 2 {
-			t.Errorf("Expected 2 sinks, got %d", len(sinks))
-		}
-
-		esMetrics := sinks["elasticsearch"].(map[string]any)
-		if esMetrics["writes_total"] != int64(2) {
-			t.Errorf("Expected 2 elasticsearch writes, got %v", esMetrics["writes_total"])
-		}
-		if esMetrics["documents_written"] != int64(15) {
-			t.Errorf("Expected 15 documents written, got %v", esMetrics["documents_written"])
+		if len(currentMetrics.Sinks) != 2 {
+			t.Errorf("Expected 2 sinks, got %d", len(currentMetrics.Sinks))
 		}
 
-		promMetrics := sinks["prometheus"].(map[string]any)
-		if promMetrics["writes_total"] != int64(1) {
-			t.Errorf("Expected 1 prometheus write, got %v", promMetrics["writes_total"])
+		esMetrics := currentMetrics.Sinks["elasticsearch"]
+		if esMetrics.WritesTotal != int64(2) {
+			t.Errorf("Expected 2 elasticsearch writes, got %v", esMetrics.WritesTotal)
 		}
-		if promMetrics["documents_written"] != int64(3) {
-			t.Errorf("Expected 3 documents written, got %v", promMetrics["documents_written"])
+		if esMetrics.DocumentsWritten != int64(15) {
+			t.Errorf("Expected 15 documents written, got %v", esMetrics.DocumentsWritten)
+		}
+
+		promMetrics := currentMetrics.Sinks["prometheus"]
+		if promMetrics.WritesTotal != int64(1) {
+			t.Errorf("Expected 1 prometheus write, got %v", promMetrics.WritesTotal)
+		}
+		if promMetrics.DocumentsWritten != int64(3) {
+			t.Errorf("Expected 3 documents written, got %v", promMetrics.DocumentsWritten)
 		}
 	})
 
@@ -103,14 +99,13 @@ func TestMetricsCollector(t *testing.T) {
 		metrics.RecordSinkError("elasticsearch")
 
 		currentMetrics := metrics.GetMetrics()
-		sinks := currentMetrics["sinks"].(map[string]any)
-		esMetrics := sinks["elasticsearch"].(map[string]any)
+		esMetrics := currentMetrics.Sinks["elasticsearch"]
 
-		if esMetrics["writes_total"] != int64(1) {
-			t.Errorf("Expected 1 write, got %v", esMetrics["writes_total"])
+		if esMetrics.WritesTotal != int64(1) {
+			t.Errorf("Expected 1 write, got %v", esMetrics.WritesTotal)
 		}
-		if esMetrics["errors_total"] != int64(2) {
-			t.Errorf("Expected 2 errors, got %v", esMetrics["errors_total"])
+		if esMetrics.ErrorsTotal != int64(2) {
+			t.Errorf("Expected 2 errors, got %v", esMetrics.ErrorsTotal)
 		}
 	})
 
@@ -121,10 +116,9 @@ func TestMetricsCollector(t *testing.T) {
 		time.Sleep(10 * time.Millisecond)
 
 		currentMetrics := metrics.GetMetrics()
-		uptime := currentMetrics["uptime_seconds"].(float64)
 
-		if uptime <= 0 {
-			t.Errorf("Expected positive uptime, got %f", uptime)
+		if currentMetrics.UptimeSeconds <= 0 {
+			t.Errorf("Expected positive uptime, got %f", currentMetrics.UptimeSeconds)
 		}
 	})
 
@@ -150,24 +144,22 @@ func TestMetricsCollector(t *testing.T) {
 
 		// Verify counts
 		currentMetrics := metrics.GetMetrics()
-		providers := currentMetrics["providers"].(map[string]any)
-		ecobeeMetrics := providers["ecobee"].(map[string]any)
+		ecobeeMetrics := currentMetrics.Providers["ecobee"]
 
-		if ecobeeMetrics["requests_total"] != int64(10) {
-			t.Errorf("Expected 10 requests, got %v", ecobeeMetrics["requests_total"])
+		if ecobeeMetrics.RequestsTotal != int64(10) {
+			t.Errorf("Expected 10 requests, got %v", ecobeeMetrics.RequestsTotal)
 		}
-		if ecobeeMetrics["errors_total"] != int64(10) {
-			t.Errorf("Expected 10 errors, got %v", ecobeeMetrics["errors_total"])
+		if ecobeeMetrics.ErrorsTotal != int64(10) {
+			t.Errorf("Expected 10 errors, got %v", ecobeeMetrics.ErrorsTotal)
 		}
 
-		sinks := currentMetrics["sinks"].(map[string]any)
-		esMetrics := sinks["elasticsearch"].(map[string]any)
+		esMetrics := currentMetrics.Sinks["elasticsearch"]
 
-		if esMetrics["writes_total"] != int64(10) {
-			t.Errorf("Expected 10 writes, got %v", esMetrics["writes_total"])
+		if esMetrics.WritesTotal != int64(10) {
+			t.Errorf("Expected 10 writes, got %v", esMetrics.WritesTotal)
 		}
-		if esMetrics["errors_total"] != int64(10) {
-			t.Errorf("Expected 10 errors, got %v", esMetrics["errors_total"])
+		if esMetrics.ErrorsTotal != int64(10) {
+			t.Errorf("Expected 10 errors, got %v", esMetrics.ErrorsTotal)
 		}
 	})
 }

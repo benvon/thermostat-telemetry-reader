@@ -12,6 +12,11 @@ import (
 	"github.com/benvon/thermostat-telemetry-reader/pkg/temperature"
 )
 
+const (
+	ecobeeRuntimeDateFormat = "2006-01-02"
+	errMsgMarshalSelection  = "marshaling selection: %w"
+)
+
 // Provider implements the Ecobee thermostat provider
 type Provider struct {
 	authManager *AuthManager
@@ -70,8 +75,14 @@ func (p *Provider) ListThermostats(ctx context.Context) ([]model.ThermostatRef, 
 
 // GetSummary returns high-level information for change detection
 func (p *Provider) GetSummary(ctx context.Context, tr model.ThermostatRef) (model.Summary, error) {
+	selection := NewSummarySelection(tr.ID)
+	selectionJSON, err := json.Marshal(selection)
+	if err != nil {
+		return model.Summary{}, fmt.Errorf(errMsgMarshalSelection, err)
+	}
+
 	resp, err := p.authManager.makeAuthenticatedRequest(ctx, "/thermostatSummary", map[string]string{
-		"selection": `{"selectionType":"thermostats","selectionMatch":"` + tr.ID + `","includeAlerts":true}`,
+		"selection": string(selectionJSON),
 	})
 	if err != nil {
 		return model.Summary{}, fmt.Errorf("requesting thermostat summary: %w", err)
@@ -113,10 +124,14 @@ func (p *Provider) GetSummary(ctx context.Context, tr model.ThermostatRef) (mode
 
 // GetSnapshot returns current thermostat state
 func (p *Provider) GetSnapshot(ctx context.Context, tr model.ThermostatRef, since time.Time) (model.Snapshot, error) {
-	selection := fmt.Sprintf(`{"selectionType":"thermostats","selectionMatch":"%s","includeRuntime":true,"includeSettings":true,"includeEvents":true,"includeProgram":true,"includeEquipmentStatus":true}`, tr.ID)
+	selection := NewSnapshotSelection(tr.ID)
+	selectionJSON, err := json.Marshal(selection)
+	if err != nil {
+		return model.Snapshot{}, fmt.Errorf(errMsgMarshalSelection, err)
+	}
 
 	resp, err := p.authManager.makeAuthenticatedRequest(ctx, "/thermostat", map[string]string{
-		"selection": selection,
+		"selection": string(selectionJSON),
 	})
 	if err != nil {
 		return model.Snapshot{}, fmt.Errorf("requesting thermostat snapshot: %w", err)
@@ -157,14 +172,20 @@ func (p *Provider) GetSnapshot(ctx context.Context, tr model.ThermostatRef, sinc
 // GetRuntime returns historical runtime data for the specified time range
 func (p *Provider) GetRuntime(ctx context.Context, tr model.ThermostatRef, from, to time.Time) ([]model.RuntimeRow, error) {
 	// Format dates for Ecobee API (YYYY-MM-DD)
-	startDate := from.Format("2006-01-02")
-	endDate := to.Format("2006-01-02")
+	startDate := from.Format(ecobeeRuntimeDateFormat)
+	endDate := to.Format(ecobeeRuntimeDateFormat)
+
+	selection := NewThermostatSelection(tr.ID)
+	selectionJSON, err := json.Marshal(selection)
+	if err != nil {
+		return nil, fmt.Errorf(errMsgMarshalSelection, err)
+	}
 
 	params := map[string]string{
 		"startDate": startDate,
 		"endDate":   endDate,
 		"columns":   "zoneHeatTemp,zoneCoolTemp,zoneAveTemp,outdoorTemp,outdoorHumidity,compHeat1,compHeat2,compCool1,compCool2,fan,hvacMode,zoneClimateRef",
-		"selection": fmt.Sprintf(`{"selectionType":"thermostats","selectionMatch":"%s"}`, tr.ID),
+		"selection": string(selectionJSON),
 	}
 
 	resp, err := p.authManager.makeAuthenticatedRequest(ctx, "/runtimeReport", params)
@@ -208,7 +229,7 @@ func (p *Provider) GetRuntime(ctx context.Context, tr model.ThermostatRef, from,
 			}
 
 			// Parse date and time
-			date, err := time.Parse("2006-01-02", dataRow.Date)
+			date, err := time.Parse(ecobeeRuntimeDateFormat, dataRow.Date)
 			if err != nil {
 				continue // Skip invalid dates
 			}

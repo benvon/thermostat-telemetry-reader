@@ -54,11 +54,12 @@ type tokenResponse struct {
 type Selection struct {
 	SelectionType          string `json:"selectionType"`
 	SelectionMatch         string `json:"selectionMatch"`
-	IncludeRuntime         bool   `json:"includeRuntime"`
-	IncludeSettings        bool   `json:"includeSettings"`
-	IncludeEvents          bool   `json:"includeEvents"`
-	IncludeProgram         bool   `json:"includeProgram"`
-	IncludeEquipmentStatus bool   `json:"includeEquipmentStatus"`
+	IncludeRuntime         bool   `json:"includeRuntime,omitempty"`
+	IncludeSettings        bool   `json:"includeSettings,omitempty"`
+	IncludeEvents          bool   `json:"includeEvents,omitempty"`
+	IncludeProgram         bool   `json:"includeProgram,omitempty"`
+	IncludeEquipmentStatus bool   `json:"includeEquipmentStatus,omitempty"`
+	IncludeAlerts          bool   `json:"includeAlerts,omitempty"`
 }
 
 // SelectionRequest wraps the selection criteria for API requests
@@ -79,6 +80,32 @@ func NewDefaultSelection() *SelectionRequest {
 			IncludeEquipmentStatus: true,
 		},
 	}
+}
+
+// NewThermostatSelection creates a selection for a specific thermostat
+func NewThermostatSelection(thermostatID string) Selection {
+	return Selection{
+		SelectionType:  "thermostats",
+		SelectionMatch: thermostatID,
+	}
+}
+
+// NewSummarySelection creates a selection for thermostat summary
+func NewSummarySelection(thermostatID string) Selection {
+	sel := NewThermostatSelection(thermostatID)
+	sel.IncludeAlerts = true
+	return sel
+}
+
+// NewSnapshotSelection creates a selection for thermostat snapshot
+func NewSnapshotSelection(thermostatID string) Selection {
+	sel := NewThermostatSelection(thermostatID)
+	sel.IncludeRuntime = true
+	sel.IncludeSettings = true
+	sel.IncludeEvents = true
+	sel.IncludeProgram = true
+	sel.IncludeEquipmentStatus = true
+	return sel
 }
 
 // RefreshToken refreshes the authentication token

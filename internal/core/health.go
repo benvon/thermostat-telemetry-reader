@@ -161,7 +161,12 @@ func (h *HealthChecker) ServeHealth() http.Handler {
 		// Encode response as JSON
 		if err := json.NewEncoder(w).Encode(status); err != nil {
 			// Log error but don't change status code (already written)
-			_, _ = fmt.Fprintf(w, `{"error": "failed to encode health status"}`)
+			errorResp := HealthStatus{
+				Status:    "unhealthy",
+				Timestamp: time.Now(),
+				Checks:    map[string]CheckResult{},
+			}
+			_ = json.NewEncoder(w).Encode(errorResp)
 		}
 	})
 }
@@ -183,6 +188,28 @@ type MetricsCollector struct {
 
 	// General metrics
 	startTime time.Time
+}
+
+// Metrics represents the overall metrics structure
+type Metrics struct {
+	UptimeSeconds float64                    `json:"uptime_seconds"`
+	Providers     map[string]ProviderMetrics `json:"providers"`
+	Sinks         map[string]SinkMetrics     `json:"sinks"`
+}
+
+// ProviderMetrics represents metrics for a provider
+type ProviderMetrics struct {
+	RequestsTotal   int64  `json:"requests_total"`
+	ErrorsTotal     int64  `json:"errors_total"`
+	LastRequestTime string `json:"last_request_time"`
+}
+
+// SinkMetrics represents metrics for a sink
+type SinkMetrics struct {
+	WritesTotal      int64  `json:"writes_total"`
+	ErrorsTotal      int64  `json:"errors_total"`
+	DocumentsWritten int64  `json:"documents_written"`
+	LastWriteTime    string `json:"last_write_time"`
 }
 
 // NewMetricsCollector creates a new metrics collector
@@ -235,34 +262,32 @@ func (m *MetricsCollector) RecordSinkError(sinkName string) {
 }
 
 // GetMetrics returns current metrics
-func (m *MetricsCollector) GetMetrics() map[string]any {
+func (m *MetricsCollector) GetMetrics() Metrics {
 	m.mu.RLock()
 	defer m.mu.RUnlock()
 
-	metrics := map[string]any{
-		"uptime_seconds": time.Since(m.startTime).Seconds(),
-		"providers":      make(map[string]any),
-		"sinks":          make(map[string]any),
+	metrics := Metrics{
+		UptimeSeconds: time.Since(m.startTime).Seconds(),
+		Providers:     make(map[string]ProviderMetrics),
+		Sinks:         make(map[string]SinkMetrics),
 	}
 
 	// Provider metrics
-	providers := metrics["providers"].(map[string]any)
 	for name, requests := range m.providerRequests {
-		providers[name] = map[string]any{
-			"requests_total":    requests,
-			"errors_total":      m.providerErrors[name],
-			"last_request_time": m.providerLastRequest[name].Format(time.RFC3339),
+		metrics.Providers[name] = ProviderMetrics{
+			RequestsTotal:   requests,
+			ErrorsTotal:     m.providerErrors[name],
+			LastRequestTime: m.providerLastRequest[name].Format(time.RFC3339),
 		}
 	}
 
 	// Sink metrics
-	sinks := metrics["sinks"].(map[string]any)
 	for name, writes := range m.sinkWrites {
-		sinks[name] = map[string]any{
-			"writes_total":      writes,
-			"errors_total":      m.sinkErrors[name],
-			"documents_written": m.sinkDocumentsWritten[name],
-			"last_write_time":   m.sinkLastWrite[name].Format(time.RFC3339),
+		metrics.Sinks[name] = SinkMetrics{
+			WritesTotal:      writes,
+			ErrorsTotal:      m.sinkErrors[name],
+			DocumentsWritten: m.sinkDocumentsWritten[name],
+			LastWriteTime:    m.sinkLastWrite[name].Format(time.RFC3339),
 		}
 	}
 
@@ -280,7 +305,12 @@ func (m *MetricsCollector) ServeMetrics() http.Handler {
 		// Encode response as JSON
 		if err := json.NewEncoder(w).Encode(metrics); err != nil {
 			// Log error but don't change status code (already written)
-			_, _ = fmt.Fprintf(w, `{"error": "failed to encode metrics"}`)
+			errorResp := struct {
+				Error string `json:"error"`
+			}{
+				Error: "failed to encode metrics",
+			}
+			_ = json.NewEncoder(w).Encode(errorResp)
 		}
 	})
 }
