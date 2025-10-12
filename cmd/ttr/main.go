@@ -125,8 +125,21 @@ func initializeApp(ctx context.Context, cfg *config.Config, logger *slog.Logger)
 	}
 	app.Normalizer = normalizer
 
-	// Initialize offset store (using in-memory for now)
-	offsetStore := core.NewMemoryOffsetStore()
+	// Initialize offset store
+	// Try to use SQLite for persistent storage, fall back to in-memory if unavailable
+	var offsetStore core.OffsetStore
+	sqliteStore, err := core.NewSQLiteOffsetStore("./data/offsets.db")
+	if err != nil {
+		logger.Warn("Failed to initialize SQLite offset store, using in-memory store", "error", err)
+		offsetStore = core.NewMemoryOffsetStore()
+	} else {
+		logger.Info("Using SQLite offset store", "path", "./data/offsets.db")
+		offsetStore = sqliteStore
+	}
+
+	// Initialize metrics collector
+	metrics := core.NewMetricsCollector()
+	app.Metrics = metrics
 
 	// Initialize scheduler
 	scheduler := core.NewScheduler(
@@ -136,6 +149,7 @@ func initializeApp(ctx context.Context, cfg *config.Config, logger *slog.Logger)
 		offsetStore,
 		cfg.TTR.PollInterval,
 		cfg.TTR.BackfillWindow,
+		metrics,
 		logger,
 	)
 	app.Scheduler = scheduler
@@ -143,10 +157,6 @@ func initializeApp(ctx context.Context, cfg *config.Config, logger *slog.Logger)
 	// Initialize health checker
 	healthChecker := core.NewHealthChecker(providers, sinks)
 	app.HealthChecker = healthChecker
-
-	// Initialize metrics collector
-	metrics := core.NewMetricsCollector()
-	app.Metrics = metrics
 
 	return app, nil
 }

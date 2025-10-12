@@ -78,6 +78,8 @@ type Scheduler struct {
 	offsetStore    OffsetStore
 	pollInterval   time.Duration
 	backfillWindow time.Duration
+	idGenerator    model.DocumentIDGenerator
+	metrics        *MetricsCollector
 	logger         *slog.Logger
 }
 
@@ -88,6 +90,7 @@ func NewScheduler(
 	normalizer *Normalizer,
 	offsetStore OffsetStore,
 	pollInterval, backfillWindow time.Duration,
+	metrics *MetricsCollector,
 	logger *slog.Logger,
 ) *Scheduler {
 	return &Scheduler{
@@ -97,6 +100,8 @@ func NewScheduler(
 		offsetStore:    offsetStore,
 		pollInterval:   pollInterval,
 		backfillWindow: backfillWindow,
+		idGenerator:    model.NewIDGenerator(),
+		metrics:        metrics,
 		logger:         logger,
 	}
 }
@@ -167,9 +172,13 @@ func (s *Scheduler) backfillThermostat(ctx context.Context, provider model.Provi
 		"from", from,
 		"to", to)
 
+	// Record provider request
+	s.metrics.RecordProviderRequest(provider.Info().Name)
+
 	// Get runtime data for the backfill period
 	runtimeData, err := provider.GetRuntime(ctx, thermostat, from, to)
 	if err != nil {
+		s.metrics.RecordProviderError(provider.Info().Name)
 		return fmt.Errorf("getting runtime data: %w", err)
 	}
 
@@ -183,8 +192,7 @@ func (s *Scheduler) backfillThermostat(ctx context.Context, provider model.Provi
 		}
 
 		// Generate document ID
-		idGen := &IDGenerator{}
-		docID, err := idGen.GenerateRuntime5mID(canonical)
+		docID, err := s.idGenerator.GenerateRuntime5mID(canonical)
 		if err != nil {
 			s.logger.Error("Failed to generate document ID for runtime_5m", "error", err)
 			continue
@@ -247,9 +255,13 @@ func (s *Scheduler) pollProvider(ctx context.Context, provider model.Provider) e
 
 // pollThermostat polls a single thermostat
 func (s *Scheduler) pollThermostat(ctx context.Context, provider model.Provider, thermostat model.ThermostatRef) error {
+	// Record provider request
+	s.metrics.RecordProviderRequest(provider.Info().Name)
+
 	// Check if we need to fetch new data
 	summary, err := provider.GetSummary(ctx, thermostat)
 	if err != nil {
+		s.metrics.RecordProviderError(provider.Info().Name)
 		return fmt.Errorf("getting summary: %w", err)
 	}
 
@@ -291,8 +303,12 @@ func (s *Scheduler) pollThermostat(ctx context.Context, provider model.Provider,
 func (s *Scheduler) fetchAndProcessSnapshot(ctx context.Context, provider model.Provider, thermostat model.ThermostatRef) error {
 	s.logger.Debug("Fetching snapshot", "thermostat", thermostat.ID)
 
+	// Record provider request
+	s.metrics.RecordProviderRequest(provider.Info().Name)
+
 	snapshot, err := provider.GetSnapshot(ctx, thermostat, time.Time{})
 	if err != nil {
+		s.metrics.RecordProviderError(provider.Info().Name)
 		return fmt.Errorf("getting snapshot: %w", err)
 	}
 
@@ -300,8 +316,7 @@ func (s *Scheduler) fetchAndProcessSnapshot(ctx context.Context, provider model.
 	canonical := s.normalizer.NormalizeDeviceSnapshot(snapshot, provider.Info().Name)
 
 	// Generate document ID
-	idGen := &IDGenerator{}
-	docID, err := idGen.GenerateDeviceSnapshotID(canonical)
+	docID, err := s.idGenerator.GenerateDeviceSnapshotID(canonical)
 	if err != nil {
 		return fmt.Errorf("generating document ID for device_snapshot: %w", err)
 	}
@@ -329,9 +344,13 @@ func (s *Scheduler) fetchAndProcessSnapshot(ctx context.Context, provider model.
 func (s *Scheduler) fetchAndProcessRuntime(ctx context.Context, provider model.Provider, thermostat model.ThermostatRef, lastRuntime time.Time) error {
 	s.logger.Debug("Fetching runtime data", "thermostat", thermostat.ID, "since", lastRuntime)
 
+	// Record provider request
+	s.metrics.RecordProviderRequest(provider.Info().Name)
+
 	now := time.Now()
 	runtimeData, err := provider.GetRuntime(ctx, thermostat, lastRuntime, now)
 	if err != nil {
+		s.metrics.RecordProviderError(provider.Info().Name)
 		return fmt.Errorf("getting runtime data: %w", err)
 	}
 
@@ -340,8 +359,10 @@ func (s *Scheduler) fetchAndProcessRuntime(ctx context.Context, provider model.P
 		return nil
 	}
 
-	// Normalize and write runtime data
+	// Normalize and write runtime data, and detect transitions
 	var docs []model.Doc
+	var prevState *model.State
+
 	for _, runtime := range runtimeData {
 		canonical, err := s.normalizer.NormalizeRuntime5m(runtime, provider.Info().Name)
 		if err != nil {
@@ -350,8 +371,7 @@ func (s *Scheduler) fetchAndProcessRuntime(ctx context.Context, provider model.P
 		}
 
 		// Generate document ID
-		idGen := &IDGenerator{}
-		docID, err := idGen.GenerateRuntime5mID(canonical)
+		docID, err := s.idGenerator.GenerateRuntime5mID(canonical)
 		if err != nil {
 			s.logger.Error("Failed to generate document ID for runtime_5m", "error", err)
 			continue
@@ -362,6 +382,43 @@ func (s *Scheduler) fetchAndProcessRuntime(ctx context.Context, provider model.P
 			Type: "runtime_5m",
 			Body: canonical,
 		})
+
+		// Check for state transitions (compare with previous runtime row)
+		currentState := model.State{
+			Mode:     canonical.Mode,
+			SetHeatC: canonical.SetHeatC,
+			SetCoolC: canonical.SetCoolC,
+			Climate:  canonical.Climate,
+		}
+
+		if prevState != nil && s.hasStateChanged(*prevState, currentState) {
+			// Generate transition document
+			transition := s.normalizer.NormalizeTransition(
+				thermostat,
+				canonical.EventTime,
+				*prevState,
+				currentState,
+				model.EventInfo{
+					Kind: s.inferTransitionKind(*prevState, currentState),
+				},
+				provider.Info().Name,
+				nil,
+			)
+
+			transitionID, err := s.idGenerator.GenerateTransitionID(transition)
+			if err != nil {
+				s.logger.Error("Failed to generate document ID for transition", "error", err)
+			} else {
+				docs = append(docs, model.Doc{
+					ID:   transitionID,
+					Type: "transition",
+					Body: transition,
+				})
+			}
+		}
+
+		// Store current state for next iteration
+		prevState = &currentState
 	}
 
 	// Write to all sinks
@@ -392,8 +449,12 @@ func (s *Scheduler) writeToAllSinks(ctx context.Context, docs []model.Doc) error
 			s.logger.Error("Failed to write to sink",
 				"sink", sink.Info().Name,
 				"error", err)
+			s.metrics.RecordSinkError(sink.Info().Name)
 			continue
 		}
+
+		// Record metrics
+		s.metrics.RecordSinkWrite(sink.Info().Name, int64(result.SuccessCount))
 
 		s.logger.Debug("Wrote to sink",
 			"sink", sink.Info().Name,
@@ -404,24 +465,73 @@ func (s *Scheduler) writeToAllSinks(ctx context.Context, docs []model.Doc) error
 			s.logger.Warn("Some documents failed to write",
 				"sink", sink.Info().Name,
 				"errors", result.Errors)
+			s.metrics.RecordSinkError(sink.Info().Name)
 		}
 	}
 
 	return nil
 }
 
-// IDGenerator is a simple implementation for document ID generation
-type IDGenerator struct{}
+// hasStateChanged determines if the thermostat state has changed significantly
+func (s *Scheduler) hasStateChanged(prev, current model.State) bool {
+	// Check mode change
+	if prev.Mode != current.Mode {
+		return true
+	}
 
-// GenerateRuntime5mID generates a deterministic ID for runtime_5m documents
-func (g *IDGenerator) GenerateRuntime5mID(doc *model.Runtime5m) (string, error) {
-	// This implementation assumes that the combination of ThermostatID, EventTime, and Type is globally unique
-	// for each runtime_5m document, which matches the uniqueness requirements of our sinks. If the sink logic
-	// changes or requires additional fields for uniqueness, this method should be updated accordingly.
-	return fmt.Sprintf("%s:%s:%s", doc.ThermostatID, doc.EventTime.Format("2006-01-02T15:04:05Z"), doc.Type), nil
+	// Check climate change
+	if prev.Climate != current.Climate {
+		return true
+	}
+
+	// Check setpoint changes (with tolerance for floating point comparison)
+	const tolerance = 0.1
+	if !floatsEqual(prev.SetHeatC, current.SetHeatC, tolerance) {
+		return true
+	}
+	if !floatsEqual(prev.SetCoolC, current.SetCoolC, tolerance) {
+		return true
+	}
+
+	return false
 }
 
-// GenerateDeviceSnapshotID generates a deterministic ID for device_snapshot documents
-func (g *IDGenerator) GenerateDeviceSnapshotID(doc *model.DeviceSnapshot) (string, error) {
-	return fmt.Sprintf("%s:%s", doc.ThermostatID, doc.CollectedAt.Format("2006-01-02T15:04:05Z")), nil
+// floatsEqual compares two float pointers within a tolerance
+func floatsEqual(a, b *float64, tolerance float64) bool {
+	if a == nil && b == nil {
+		return true
+	}
+	if a == nil || b == nil {
+		return false
+	}
+	diff := *a - *b
+	if diff < 0 {
+		diff = -diff
+	}
+	return diff < tolerance
+}
+
+// inferTransitionKind infers the kind of transition based on state changes
+func (s *Scheduler) inferTransitionKind(prev, current model.State) string {
+	// Mode changes are manual or schedule-driven
+	if prev.Mode != current.Mode {
+		return "manual"
+	}
+
+	// Climate changes typically indicate schedule or hold events
+	if prev.Climate != current.Climate {
+		if current.Climate == "Away" || current.Climate == "Vacation" {
+			return "vacation"
+		}
+		return "schedule"
+	}
+
+	// Setpoint changes without mode/climate change are usually holds
+	const tolerance = 0.1
+	if !floatsEqual(prev.SetHeatC, current.SetHeatC, tolerance) ||
+		!floatsEqual(prev.SetCoolC, current.SetCoolC, tolerance) {
+		return "hold"
+	}
+
+	return "unknown"
 }

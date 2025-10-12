@@ -8,6 +8,8 @@ import (
 	"net/url"
 	"os"
 	"time"
+
+	"github.com/benvon/thermostat-telemetry-reader/pkg/retry"
 )
 
 var (
@@ -30,14 +32,21 @@ type AuthManager struct {
 	accessToken  string
 	tokenExpiry  time.Time
 	httpClient   *http.Client
+	retryConfig  retry.Config
 }
 
 // NewAuthManager creates a new Ecobee authentication manager
 func NewAuthManager(clientID, refreshToken string) *AuthManager {
+	retryConfig := retry.DefaultConfig()
+	retryConfig.MaxRetries = 3
+	retryConfig.InitialDelay = 1 * time.Second
+	retryConfig.MaxDelay = 30 * time.Second
+
 	return &AuthManager{
 		clientID:     clientID,
 		refreshToken: refreshToken,
 		httpClient:   &http.Client{Timeout: 30 * time.Second},
+		retryConfig:  retryConfig,
 	}
 }
 
@@ -164,13 +173,14 @@ func (a *AuthManager) IsTokenValid(ctx context.Context) bool {
 	return a.accessToken != "" && time.Now().Before(a.tokenExpiry.Add(-5*time.Minute))
 }
 
-// makeAuthenticatedRequest makes an authenticated request to the Ecobee API
+// makeAuthenticatedRequest makes an authenticated request to the Ecobee API with retry logic
 func (a *AuthManager) makeAuthenticatedRequest(ctx context.Context, endpoint string, params map[string]string) (*http.Response, error) {
 	token, err := a.GetAccessToken(ctx)
 	if err != nil {
 		return nil, fmt.Errorf("getting access token: %w", err)
 	}
 
+	// Build the request
 	req, err := http.NewRequestWithContext(ctx, "GET", ecobeeAPIURL+endpoint, nil)
 	if err != nil {
 		return nil, fmt.Errorf("creating request: %w", err)
@@ -199,29 +209,36 @@ func (a *AuthManager) makeAuthenticatedRequest(ctx context.Context, endpoint str
 	req.Header.Set("Authorization", "Bearer "+token)
 	req.Header.Set("Content-Type", "application/json")
 
-	resp, err := a.httpClient.Do(req)
-	if err != nil {
-		return nil, fmt.Errorf("making request: %w", err)
-	}
-
-	if resp.StatusCode == http.StatusUnauthorized {
-		_ = resp.Body.Close()
-		// Try to refresh token and retry once
-		if err := a.RefreshToken(ctx); err != nil {
-			return nil, fmt.Errorf("refreshing token after 401: %w", err)
-		}
-
-		token, err := a.GetAccessToken(ctx)
+	// Execute request with retry logic
+	return retry.DoWithResponse(ctx, a.retryConfig, func() (*http.Response, error) {
+		resp, err := a.httpClient.Do(req)
 		if err != nil {
-			return nil, fmt.Errorf("getting refreshed token: %w", err)
+			return nil, fmt.Errorf("making request: %w", err)
 		}
 
-		req.Header.Set("Authorization", "Bearer "+token)
-		resp, err = a.httpClient.Do(req)
-		if err != nil {
-			return nil, fmt.Errorf("retrying request after token refresh: %w", err)
-		}
-	}
+		// Handle 401 Unauthorized - refresh token and retry
+		if resp.StatusCode == http.StatusUnauthorized {
+			_ = resp.Body.Close()
+			// Try to refresh token
+			if err := a.RefreshToken(ctx); err != nil {
+				return nil, fmt.Errorf("refreshing token after 401: %w", err)
+			}
 
-	return resp, nil
+			refreshedToken, err := a.GetAccessToken(ctx)
+			if err != nil {
+				return nil, fmt.Errorf("getting refreshed token: %w", err)
+			}
+
+			// Update request header with new token
+			req.Header.Set("Authorization", "Bearer "+refreshedToken)
+
+			// Retry request with new token
+			resp, err = a.httpClient.Do(req)
+			if err != nil {
+				return nil, fmt.Errorf("retrying request after token refresh: %w", err)
+			}
+		}
+
+		return resp, nil
+	})
 }

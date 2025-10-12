@@ -1,56 +1,55 @@
 version: '3.8'
 
 services:
-  app:
+  ttr:
     build: .
     ports:
-      - "8080:8080"
+      - "8080:8080"  # Health check port
+      - "9090:9090"  # Metrics port
     environment:
-      - ENV=development
-      - APP_PORT=8080
+      - TTR_LOG_LEVEL=info
+      - TTR_TIMEZONE=UTC
+      - ECOBEE_CLIENT_ID=${ECOBEE_CLIENT_ID}
+      - ECOBEE_REFRESH_TOKEN=${ECOBEE_REFRESH_TOKEN}
+      - ELASTIC_API_KEY=${ELASTIC_API_KEY}
     volumes:
-      - .:/app
-      - go-mod-cache:/go/pkg/mod
+      - ttr-data:/app/data  # Persistent volume for SQLite offset database
     working_dir: /app
-    command: go run main.go
+    command: /app/bin/thermostat-telemetry-reader -config /app/config.yaml
     networks:
-      - app-network
+      - ttr-network
     restart: unless-stopped
     healthcheck:
-      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/health"]
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:8080/healthz"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 40s
 
-  # Optional: Add a database service if needed
-  # db:
-  #   image: postgres:15-alpine
+  # Optional: Local Elasticsearch for testing
+  # elasticsearch:
+  #   image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
   #   environment:
-  #     POSTGRES_DB: app_db
-  #     POSTGRES_USER: app_user
-  #     POSTGRES_PASSWORD: app_password
+  #     - discovery.type=single-node
+  #     - xpack.security.enabled=false
+  #     - "ES_JAVA_OPTS=-Xms512m -Xmx512m"
   #   ports:
-  #     - "5432:5432"
+  #     - "9200:9200"
+  #     - "9300:9300"
   #   volumes:
-  #     - postgres_data:/var/lib/postgresql/data
+  #     - es-data:/usr/share/elasticsearch/data
   #   networks:
-  #     - app-network
-  #   restart: unless-stopped
-
-  # Optional: Add Redis for caching if needed
-  # redis:
-  #   image: redis:7-alpine
-  #   ports:
-  #     - "6379:6379"
-  #   networks:
-  #     - app-network
+  #     - ttr-network
   #   restart: unless-stopped
 
 volumes:
-  go-mod-cache:
+  ttr-data:
     driver: local
+    # Persistent storage for SQLite offset tracking database
+    # This ensures offset state is maintained across container restarts
+  # es-data:
+  #   driver: local
 
 networks:
-  app-network:
+  ttr-network:
     driver: bridge

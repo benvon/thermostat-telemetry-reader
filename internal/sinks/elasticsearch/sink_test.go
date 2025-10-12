@@ -9,7 +9,7 @@ import (
 )
 
 func TestGenerateRuntime5mID(t *testing.T) {
-	gen := NewIDGenerator()
+	gen := model.NewIDGenerator()
 
 	// Create a test document with known values
 	doc := &model.Runtime5m{
@@ -70,7 +70,7 @@ func TestGenerateRuntime5mID(t *testing.T) {
 }
 
 func TestGenerateTransitionID(t *testing.T) {
-	gen := NewIDGenerator()
+	gen := model.NewIDGenerator()
 
 	doc := &model.Transition{
 		Type:           "transition",
@@ -133,7 +133,7 @@ func TestGenerateTransitionID(t *testing.T) {
 }
 
 func TestGenerateDeviceSnapshotID(t *testing.T) {
-	gen := NewIDGenerator()
+	gen := model.NewIDGenerator()
 
 	doc := &model.DeviceSnapshot{
 		Type:           "device_snapshot",

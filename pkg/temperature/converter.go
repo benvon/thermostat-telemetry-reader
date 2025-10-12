@@ -56,6 +56,7 @@ func NewConverter(sourceFormat, targetFormat Format) *Converter {
 
 // Convert converts a temperature value from source format to target format
 func (c *Converter) Convert(temp *float64) (*float64, error) {
+	// if we are passed a nil, return nil
 	if temp == nil {
 		return nil, nil
 	}

@@ -2,93 +2,12 @@ package core
 
 import (
 	"context"
-	"strings"
+	"log/slog"
 	"testing"
 	"time"
 
 	"github.com/benvon/thermostat-telemetry-reader/pkg/model"
 )
-
-func TestGenerateRuntime5mID(t *testing.T) {
-	idGen := &IDGenerator{}
-
-	doc := &model.Runtime5m{
-		Type:           "runtime_5m",
-		ThermostatID:   "therm-001",
-		ThermostatName: "Main Floor",
-		EventTime:      time.Date(2024, 3, 10, 8, 15, 0, 0, time.UTC),
-		Mode:           "heat",
-		Climate:        "Home",
-	}
-
-	id, err := idGen.GenerateRuntime5mID(doc)
-	if err != nil {
-		t.Fatalf("Failed to generate ID: %v", err)
-	}
-
-	// Verify format
-	if !strings.Contains(id, "therm-001") {
-		t.Errorf("ID should contain thermostat ID, got: %s", id)
-	}
-
-	if !strings.Contains(id, "2024-03-10T08:15:00Z") {
-		t.Errorf("ID should contain formatted timestamp, got: %s", id)
-	}
-
-	// Verify determinism
-	id2, err := idGen.GenerateRuntime5mID(doc)
-	if err != nil {
-		t.Fatalf("Failed to generate ID: %v", err)
-	}
-	if id != id2 {
-		t.Errorf("IDs should be deterministic. First: %s, Second: %s", id, id2)
-	}
-}
-
-func TestGenerateDeviceSnapshotID(t *testing.T) {
-	idGen := &IDGenerator{}
-
-	doc := &model.DeviceSnapshot{
-		Type:           "device_snapshot",
-		ThermostatID:   "therm-002",
-		ThermostatName: "Upstairs",
-		CollectedAt:    time.Date(2024, 3, 10, 12, 0, 0, 0, time.UTC),
-	}
-
-	id, err := idGen.GenerateDeviceSnapshotID(doc)
-	if err != nil {
-		t.Fatalf("Failed to generate ID: %v", err)
-	}
-
-	// Verify format
-	if !strings.Contains(id, "therm-002") {
-		t.Errorf("ID should contain thermostat ID, got: %s", id)
-	}
-
-	if !strings.Contains(id, "2024-03-10T12:00:00Z") {
-		t.Errorf("ID should contain formatted timestamp, got: %s", id)
-	}
-
-	// Verify determinism
-	id2, err := idGen.GenerateDeviceSnapshotID(doc)
-	if err != nil {
-		t.Fatalf("Failed to generate ID: %v", err)
-	}
-	if id != id2 {
-		t.Errorf("IDs should be deterministic. First: %s, Second: %s", id, id2)
-	}
-
-	// Different timestamps should produce different IDs
-	doc2 := *doc
-	doc2.CollectedAt = time.Date(2024, 3, 10, 13, 0, 0, 0, time.UTC)
-	id3, err := idGen.GenerateDeviceSnapshotID(&doc2)
-	if err != nil {
-		t.Fatalf("Failed to generate ID: %v", err)
-	}
-	if id == id3 {
-		t.Error("Different collection times should produce different IDs")
-	}
-}
 
 func TestMemoryOffsetStore(t *testing.T) {
 	t.Run("runtime time operations", func(t *testing.T) {
@@ -207,6 +126,8 @@ func TestNewScheduler(t *testing.T) {
 	}
 
 	offsetStore := NewMemoryOffsetStore()
+	metrics := NewMetricsCollector()
+	logger := slog.Default()
 
 	scheduler := NewScheduler(
 		[]model.Provider{provider},
@@ -215,7 +136,8 @@ func TestNewScheduler(t *testing.T) {
 		offsetStore,
 		5*time.Minute,
 		24*time.Hour,
-		nil, // logger can be nil, will use default
+		metrics,
+		logger,
 	)
 
 	if scheduler == nil {
@@ -236,6 +158,14 @@ func TestNewScheduler(t *testing.T) {
 
 	if scheduler.backfillWindow != 24*time.Hour {
 		t.Errorf("Expected 24h backfill window, got %v", scheduler.backfillWindow)
+	}
+
+	if scheduler.metrics == nil {
+		t.Error("Expected non-nil metrics collector")
+	}
+
+	if scheduler.idGenerator == nil {
+		t.Error("Expected non-nil ID generator")
 	}
 }
 

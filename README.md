@@ -7,10 +7,12 @@ A Go application that continuously ingests thermostat state and history data wit
 - **Pluggable Providers**: Currently supports Ecobee, with extensible architecture for future providers (Nest, Honeywell, etc.)
 - **Pluggable Sinks**: Currently supports Elasticsearch, with extensible architecture for future sinks (MongoDB, S3 NDJSON, Kafka, etc.)
 - **Canonical Data Model**: Normalizes all data to consistent format with UTC timestamps
-- **Resilient Design**: Rate limiting, backoff, and retry logic for API calls
-- **Offset Tracking**: Maintains state to avoid duplicate data collection
+- **Resilient Design**: Exponential backoff with jitter, retry-after header support, and intelligent error handling
+- **Persistent Offset Tracking**: SQLite-based offset storage maintains state across restarts (with in-memory fallback)
+- **Automatic Transition Detection**: Identifies and tracks state changes (mode, climate, setpoints)
+- **Deterministic IDs**: Hash-based document IDs ensure idempotency
 - **Health Monitoring**: Built-in health checks and metrics endpoints
-- **Container Ready**: Single binary with Docker support
+- **Container Ready**: Single binary with Docker support and persistent volumes
 
 ## Architecture
 
@@ -53,6 +55,7 @@ TTR emits three types of documents:
 - Go 1.23+ (latest patch release)
 - Ecobee account with API access
 - Elasticsearch cluster (optional, can use other sinks)
+- SQLite3 development libraries (for persistent offset storage)
 
 ### Installation
 
@@ -171,11 +174,18 @@ Example health response:
 cmd/ttr/                    # Main application
 internal/
   core/                     # Core scheduling and normalization logic
+    scheduler.go            # Polling orchestration and transition detection
+    normalizer.go           # Data normalization
+    offset_sqlite.go        # Persistent offset storage
+    health.go               # Health checks and metrics
   providers/ecobee/         # Ecobee provider implementation
   sinks/elasticsearch/      # Elasticsearch sink implementation
 pkg/
   config/                   # Configuration management
   model/                    # Data models and interfaces
+    id_generator.go         # Deterministic document ID generation
+  retry/                    # Retry logic with exponential backoff
+  temperature/              # Temperature conversion utilities
 ```
 
 ### Running Tests
@@ -222,23 +232,27 @@ docker run -p 8080:8080 -p 9090:9090 \
 make docker-compose-up
 ```
 
+**Note**: Docker deployment includes a persistent volume (`ttr-data`) for the SQLite offset database, ensuring state is maintained across container restarts.
+
 ## Operational Requirements
 
 - **Resource Usage**: <150MB RAM, <1 vCPU
-- **Resilience**: Automatic retries with exponential backoff
+- **Resilience**: Automatic retries with exponential backoff and jitter
 - **Time Handling**: All timestamps in UTC
 - **Security**: Tokens via environment variables, never logged
 - **Monitoring**: Built-in metrics and health checks
+- **Persistence**: SQLite database for offset tracking (requires persistent volume in Docker)
 
 ## Error Handling
 
 TTR handles various error conditions:
 
-- **Transport Errors**: Network connectivity issues
-- **Rate Limits**: Respects API rate limits with backoff
-- **Authentication**: Automatic token refresh
+- **Transport Errors**: Network connectivity issues with retry logic
+- **Rate Limits**: Respects API rate limits with exponential backoff and Retry-After headers
+- **Authentication**: Automatic token refresh with retry
 - **Schema Errors**: Graceful handling of data format changes
 - **Provider Lag**: Handles delayed data gracefully
+- **Partial Failures**: Continues processing even when individual operations fail
 
 ## Extensibility
 
@@ -271,6 +285,29 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 Please read [CONTRIBUTING.md](CONTRIBUTING.md) for details on our code of conduct and the process for submitting pull requests.
 
+## Documentation
+
+- **[Architecture](docs/ARCHITECTURE.md)**: Detailed system architecture and design decisions
+- **[Requirements](`.cursor/instructions/project_requirements.md`)**: Original project requirements and specifications
+- **[Contributing](CONTRIBUTING.md)**: Guidelines for contributing to the project
+- **[Release Guide](RELEASE_GUIDE.md)**: Release process and version history
+- **[Security](SECURITY.md)**: Security policies and reporting
+
+## External Dependencies
+
+### Runtime Dependencies
+
+- **SQLite3**: Persistent offset tracking
+  - Package: `github.com/mattn/go-sqlite3` v1.14.22
+  - Purpose: Maintains polling state across restarts
+  - Fallback: Automatically uses in-memory storage if unavailable
+  - Database location: `./data/offsets.db`
+
+### Optional Dependencies
+
+- **Elasticsearch**: Time-series data storage (8.x recommended)
+- **Docker**: Container deployment
+
 ## Support
 
 For support and questions:
@@ -278,7 +315,4 @@ For support and questions:
 - Create an issue on GitHub
 - Check the documentation in the `docs/` directory
 - Review the example configurations in `examples/`
-
-## Changelog
-
-See [RELEASE_GUIDE.md](RELEASE_GUIDE.md) for release information and version history.
+- Read the architecture documentation for design details
