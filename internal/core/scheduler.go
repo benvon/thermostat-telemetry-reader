@@ -404,8 +404,9 @@ type IDGenerator struct{}
 
 // GenerateRuntime5mID generates a deterministic ID for runtime_5m documents
 func (g *IDGenerator) GenerateRuntime5mID(doc *model.Runtime5m) string {
-	// This is a simplified implementation
-	// In practice, you'd want to use the full ID generation logic from the sink
+	// This implementation assumes that the combination of ThermostatID, EventTime, and Type is globally unique
+	// for each runtime_5m document, which matches the uniqueness requirements of our sinks. If the sink logic
+	// changes or requires additional fields for uniqueness, this method should be updated accordingly.
 	return fmt.Sprintf("%s:%s:%s", doc.ThermostatID, doc.EventTime.Format("2006-01-02T15:04:05Z"), doc.Type)
 }
 

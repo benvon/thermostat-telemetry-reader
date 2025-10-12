@@ -6,14 +6,22 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"os"
 	"time"
 )
 
-const (
-	// #nosec G101
-	ecobeeTokenURL = "https://api.ecobee.com/token"
-	ecobeeAPIURL   = "https://api.ecobee.com/1"
+var (
+	ecobeeTokenURL = getEnvOrDefault("ECOBEE_TOKEN_URL", "https://api.ecobee.com/token")
+	ecobeeAPIURL   = getEnvOrDefault("ECOBEE_API_URL", "https://api.ecobee.com/1")
 )
+
+// getEnvOrDefault returns the value of the environment variable if set, otherwise returns the default.
+func getEnvOrDefault(key, defaultVal string) string {
+	if val := os.Getenv(key); val != "" {
+		return val
+	}
+	return defaultVal
+}
 
 // AuthManager implements authentication for the Ecobee API
 type AuthManager struct {
@@ -40,6 +48,37 @@ type tokenResponse struct {
 	TokenType    string `json:"token_type"`
 	ExpiresIn    int    `json:"expires_in"`
 	Scope        string `json:"scope"`
+}
+
+// Selection represents the Ecobee API selection criteria
+type Selection struct {
+	SelectionType          string `json:"selectionType"`
+	SelectionMatch         string `json:"selectionMatch"`
+	IncludeRuntime         bool   `json:"includeRuntime"`
+	IncludeSettings        bool   `json:"includeSettings"`
+	IncludeEvents          bool   `json:"includeEvents"`
+	IncludeProgram         bool   `json:"includeProgram"`
+	IncludeEquipmentStatus bool   `json:"includeEquipmentStatus"`
+}
+
+// SelectionRequest wraps the selection criteria for API requests
+type SelectionRequest struct {
+	Selection Selection `json:"selection"`
+}
+
+// NewDefaultSelection creates a selection with commonly used settings
+func NewDefaultSelection() *SelectionRequest {
+	return &SelectionRequest{
+		Selection: Selection{
+			SelectionType:          "registered",
+			SelectionMatch:         "",
+			IncludeRuntime:         true,
+			IncludeSettings:        true,
+			IncludeEvents:          true,
+			IncludeProgram:         true,
+			IncludeEquipmentStatus: true,
+		},
+	}
 }
 
 // RefreshToken refreshes the authentication token
@@ -112,7 +151,15 @@ func (a *AuthManager) makeAuthenticatedRequest(ctx context.Context, endpoint str
 
 	// Add query parameters
 	q := req.URL.Query()
-	q.Set("json", `{"selection":{"selectionType":"registered","selectionMatch":"","includeRuntime":true,"includeSettings":true,"includeEvents":true,"includeProgram":true,"includeEquipmentStatus":true}}`)
+
+	// Build the selection JSON properly
+	selection := NewDefaultSelection()
+	selectionJSON, err := json.Marshal(selection)
+	if err != nil {
+		return nil, fmt.Errorf("marshaling selection JSON: %w", err)
+	}
+	q.Set("json", string(selectionJSON))
+
 	for key, value := range params {
 		q.Set(key, value)
 	}

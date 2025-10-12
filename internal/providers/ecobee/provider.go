@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/benvon/thermostat-telemetry-reader/pkg/model"
+	"github.com/benvon/thermostat-telemetry-reader/pkg/temperature"
 )
 
 // Provider implements the Ecobee thermostat provider
@@ -225,19 +226,31 @@ func (p *Provider) GetRuntime(ctx context.Context, tr model.ThermostatRef, from,
 				switch columns[i] {
 				case "zoneHeatTemp":
 					if temp := parseFloat(value); temp != nil {
-						row.SetHeatC = temp
+						// Convert from Ecobee format (tenths of Fahrenheit) to Celsius
+						if convertedTemp, err := temperature.ConvertFromEcobeeToCelsius(temp); err == nil {
+							row.SetHeatC = convertedTemp
+						}
 					}
 				case "zoneCoolTemp":
 					if temp := parseFloat(value); temp != nil {
-						row.SetCoolC = temp
+						// Convert from Ecobee format (tenths of Fahrenheit) to Celsius
+						if convertedTemp, err := temperature.ConvertFromEcobeeToCelsius(temp); err == nil {
+							row.SetCoolC = convertedTemp
+						}
 					}
 				case "zoneAveTemp":
 					if temp := parseFloat(value); temp != nil {
-						row.AvgTempC = temp
+						// Convert from Ecobee format (tenths of Fahrenheit) to Celsius
+						if convertedTemp, err := temperature.ConvertFromEcobeeToCelsius(temp); err == nil {
+							row.AvgTempC = convertedTemp
+						}
 					}
 				case "outdoorTemp":
 					if temp := parseFloat(value); temp != nil {
-						row.OutdoorTempC = temp
+						// Convert from Ecobee format (tenths of Fahrenheit) to Celsius
+						if convertedTemp, err := temperature.ConvertFromEcobeeToCelsius(temp); err == nil {
+							row.OutdoorTempC = convertedTemp
+						}
 					}
 				case "outdoorHumidity":
 					if humidity := parseInt(value); humidity != nil {

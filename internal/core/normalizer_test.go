@@ -56,11 +56,8 @@ func TestNormalizeRuntime5m(t *testing.T) {
 	}
 
 	now := time.Now()
-	// Ecobee API returns temperatures in tenths of degrees Fahrenheit
-	// 680 = 68.0°F = 20.0°C
-	// 770 = 77.0°F = 25.0°C
-	// 725 = 72.5°F = 22.5°C
-	// 590 = 59.0°F = 15.0°C
+	// Providers should convert temperatures to Celsius before calling the normalizer
+	// Using realistic Celsius temperatures
 	runtime := model.RuntimeRow{
 		ThermostatRef: model.ThermostatRef{
 			ID:          "test-thermostat",
@@ -71,18 +68,18 @@ func TestNormalizeRuntime5m(t *testing.T) {
 		EventTime:       now,
 		Mode:            "heat",
 		Climate:         "home",
-		SetHeatC:        floatPtr(680.0), // 68.0°F in tenths
-		SetCoolC:        floatPtr(770.0), // 77.0°F in tenths
-		AvgTempC:        floatPtr(725.0), // 72.5°F in tenths
-		OutdoorTempC:    floatPtr(590.0), // 59.0°F in tenths
+		SetHeatC:        floatPtr(20.0), // 20.0°C
+		SetCoolC:        floatPtr(25.0), // 25.0°C
+		AvgTempC:        floatPtr(22.5), // 22.5°C
+		OutdoorTempC:    floatPtr(15.0), // 15.0°C
 		OutdoorHumidity: intPtr(60),
 		Equipment: map[string]bool{
 			"compHeat1": true,
 			"fan":       false,
 		},
 		Sensors: map[string]float64{
-			"sensor1": 725.0, // 72.5°F in tenths
-			"sensor2": 716.0, // 71.6°F in tenths = 22.0°C
+			"sensor1": 22.5, // 22.5°C
+			"sensor2": 22.0, // 22.0°C
 		},
 	}
 
@@ -455,22 +452,29 @@ func TestNormalizeSensors(t *testing.T) {
 		}
 	})
 
-	t.Run("temperature conversion", func(t *testing.T) {
-		// Ecobee format: 720 = 72.0°F = 22.2°C
+	t.Run("temperature pass-through", func(t *testing.T) {
+		// Providers should provide temperatures already in Celsius
 		input := map[string]float64{
-			"sensor1": 720.0,
+			"sensor1": 22.2,
+			"sensor2": 19.5,
+			"sensor3": 25.0,
 		}
 		result := normalizer.normalizeSensors(input)
 
-		const epsilon = 0.1
-		expected := 22.2
-		if result["sensor1"] < expected-epsilon || result["sensor1"] > expected+epsilon {
-			t.Errorf("Expected sensor1 around %.1f°C, got %.1f°C", expected, result["sensor1"])
+		// Should pass through temperatures unchanged
+		if result["sensor1"] != 22.2 {
+			t.Errorf("Expected sensor1 22.2°C, got %.1f°C", result["sensor1"])
+		}
+		if result["sensor2"] != 19.5 {
+			t.Errorf("Expected sensor2 19.5°C, got %.1f°C", result["sensor2"])
+		}
+		if result["sensor3"] != 25.0 {
+			t.Errorf("Expected sensor3 25.0°C, got %.1f°C", result["sensor3"])
 		}
 	})
 }
 
-func TestConvertTempToCelsius(t *testing.T) {
+func TestPassThroughTemperature(t *testing.T) {
 	normalizer, err := NewNormalizer("UTC")
 	if err != nil {
 		t.Fatalf("Failed to create normalizer: %v", err)
@@ -480,7 +484,6 @@ func TestConvertTempToCelsius(t *testing.T) {
 		name     string
 		input    *float64
 		expected *float64
-		epsilon  float64
 	}{
 		{
 			name:     "nil input",
@@ -488,34 +491,30 @@ func TestConvertTempToCelsius(t *testing.T) {
 			expected: nil,
 		},
 		{
-			name:     "freezing point: 32°F = 0°C",
-			input:    floatPtr(320.0), // 32.0°F in tenths
+			name:     "zero temperature",
+			input:    floatPtr(0.0),
 			expected: floatPtr(0.0),
-			epsilon:  0.01,
 		},
 		{
-			name:     "room temp: 72°F = 22.2°C",
-			input:    floatPtr(720.0), // 72.0°F in tenths
+			name:     "positive temperature",
+			input:    floatPtr(22.2),
 			expected: floatPtr(22.2),
-			epsilon:  0.1,
 		},
 		{
-			name:     "hot: 98.6°F = 37°C",
-			input:    floatPtr(986.0), // 98.6°F in tenths
-			expected: floatPtr(37.0),
-			epsilon:  0.1,
+			name:     "negative temperature",
+			input:    floatPtr(-15.5),
+			expected: floatPtr(-15.5),
 		},
 		{
-			name:     "cold: -40°F = -40°C",
-			input:    floatPtr(-400.0), // -40.0°F in tenths
-			expected: floatPtr(-40.0),
-			epsilon:  0.01,
+			name:     "high precision temperature",
+			input:    floatPtr(20.123456789),
+			expected: floatPtr(20.123456789),
 		},
 	}
 
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			result := normalizer.convertTempToCelsius(tt.input)
+			result := normalizer.passThroughTemperature(tt.input)
 
 			if tt.expected == nil {
 				if result != nil {
@@ -529,8 +528,13 @@ func TestConvertTempToCelsius(t *testing.T) {
 				return
 			}
 
-			if *result < *tt.expected-tt.epsilon || *result > *tt.expected+tt.epsilon {
-				t.Errorf("Expected %f ± %f, got %f", *tt.expected, tt.epsilon, *result)
+			if *result != *tt.expected {
+				t.Errorf("Expected %f, got %f", *tt.expected, *result)
+			}
+
+			// Verify it's the same pointer (pass-through behavior)
+			if result != tt.input {
+				t.Error("Expected result to be the same pointer as input (pass-through)")
 			}
 		})
 	}

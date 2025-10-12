@@ -101,10 +101,10 @@ func (n *Normalizer) NormalizeRuntime5m(providerData model.RuntimeRow, provider 
 		EventTime:       n.convertToUTC(providerData.EventTime),
 		Mode:            n.normalizeMode(providerData.Mode),
 		Climate:         n.normalizeClimate(providerData.Climate),
-		SetHeatC:        n.convertTempToCelsius(providerData.SetHeatC),
-		SetCoolC:        n.convertTempToCelsius(providerData.SetCoolC),
-		AvgTempC:        n.convertTempToCelsius(providerData.AvgTempC),
-		OutdoorTempC:    n.convertTempToCelsius(providerData.OutdoorTempC),
+		SetHeatC:        n.passThroughTemperature(providerData.SetHeatC),
+		SetCoolC:        n.passThroughTemperature(providerData.SetCoolC),
+		AvgTempC:        n.passThroughTemperature(providerData.AvgTempC),
+		OutdoorTempC:    n.passThroughTemperature(providerData.OutdoorTempC),
 		OutdoorHumidity: providerData.OutdoorHumidity,
 		Equipment:       n.normalizeEquipment(providerData.Equipment),
 		Sensors:         n.normalizeSensors(providerData.Sensors),
@@ -197,20 +197,12 @@ func (n *Normalizer) normalizeClimate(climate string) string {
 	return climate // Keep original if not recognized
 }
 
-// convertTempToCelsius converts temperature values to Celsius
-// Ecobee API returns temperatures in tenths of degrees Fahrenheit (e.g., 720 = 72.0°F)
-func (n *Normalizer) convertTempToCelsius(temp *float64) *float64 {
-	if temp == nil {
-		return nil
-	}
-
-	// Convert from tenths of Fahrenheit to Fahrenheit
-	tempF := *temp / 10.0
-
-	// Convert Fahrenheit to Celsius: (°F - 32) × 5/9
-	tempC := (tempF - 32.0) * 5.0 / 9.0
-
-	return &tempC
+// passThroughTemperature passes temperature values through unchanged
+// The normalizer now assumes that providers have already converted temperatures to Celsius
+func (n *Normalizer) passThroughTemperature(temp *float64) *float64 {
+	// Simply pass through the temperature value
+	// Providers are responsible for converting their temperature formats to Celsius
+	return temp
 }
 
 // normalizeEquipment ensures equipment state is properly formatted
@@ -249,10 +241,10 @@ func (n *Normalizer) normalizeSensors(sensors map[string]float64) map[string]flo
 		return nil
 	}
 
-	// Convert temperatures to Celsius if needed
+	// Pass through sensor temperatures (providers should already have converted to Celsius)
 	normalized := make(map[string]float64)
 	for sensorID, temp := range sensors {
-		normalized[sensorID] = *n.convertTempToCelsius(&temp)
+		normalized[sensorID] = *n.passThroughTemperature(&temp)
 	}
 
 	return normalized
@@ -262,8 +254,8 @@ func (n *Normalizer) normalizeSensors(sensors map[string]float64) map[string]flo
 func (n *Normalizer) normalizeState(state model.State) model.State {
 	return model.State{
 		Mode:     n.normalizeMode(state.Mode),
-		SetHeatC: n.convertTempToCelsius(state.SetHeatC),
-		SetCoolC: n.convertTempToCelsius(state.SetCoolC),
+		SetHeatC: n.passThroughTemperature(state.SetHeatC),
+		SetCoolC: n.passThroughTemperature(state.SetCoolC),
 		Climate:  n.normalizeClimate(state.Climate),
 	}
 }

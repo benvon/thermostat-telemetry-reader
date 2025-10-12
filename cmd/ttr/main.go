@@ -281,6 +281,7 @@ func startHealthServers(ctx context.Context, app *Application, cfg *config.Confi
 		<-ctx.Done()
 		logger.Info("Shutting down HTTP servers")
 
+		// Use context.WithoutCancel to inherit values but allow time for graceful shutdown
 		shutdownCtx, shutdownCancel := context.WithTimeout(context.WithoutCancel(ctx), 10*time.Second)
 		defer shutdownCancel()
 

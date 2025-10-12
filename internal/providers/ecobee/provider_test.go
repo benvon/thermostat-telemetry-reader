@@ -1,6 +1,7 @@
 package ecobee
 
 import (
+	"encoding/json"
 	"testing"
 )
 
@@ -180,6 +181,60 @@ func TestParseColumns(t *testing.T) {
 				}
 			}
 		})
+	}
+}
+
+func TestNewDefaultSelection(t *testing.T) {
+	selection := NewDefaultSelection()
+
+	// Verify the struct fields are set correctly
+	if selection.Selection.SelectionType != "registered" {
+		t.Errorf("Expected SelectionType 'registered', got %s", selection.Selection.SelectionType)
+	}
+	if selection.Selection.SelectionMatch != "" {
+		t.Errorf("Expected SelectionMatch empty string, got %s", selection.Selection.SelectionMatch)
+	}
+	if !selection.Selection.IncludeRuntime {
+		t.Error("Expected IncludeRuntime to be true")
+	}
+	if !selection.Selection.IncludeSettings {
+		t.Error("Expected IncludeSettings to be true")
+	}
+	if !selection.Selection.IncludeEvents {
+		t.Error("Expected IncludeEvents to be true")
+	}
+	if !selection.Selection.IncludeProgram {
+		t.Error("Expected IncludeProgram to be true")
+	}
+	if !selection.Selection.IncludeEquipmentStatus {
+		t.Error("Expected IncludeEquipmentStatus to be true")
+	}
+
+	// Test JSON marshaling
+	jsonData, err := json.Marshal(selection)
+	if err != nil {
+		t.Fatalf("Failed to marshal selection to JSON: %v", err)
+	}
+
+	// Verify the JSON output matches our expected structure
+	expectedJSON := `{"selection":{"selectionType":"registered","selectionMatch":"","includeRuntime":true,"includeSettings":true,"includeEvents":true,"includeProgram":true,"includeEquipmentStatus":true}}`
+
+	if string(jsonData) != expectedJSON {
+		t.Errorf("JSON output mismatch.\nExpected: %s\nGot:      %s", expectedJSON, string(jsonData))
+	}
+
+	// Test that we can unmarshal it back
+	var unmarshaled SelectionRequest
+	if err := json.Unmarshal(jsonData, &unmarshaled); err != nil {
+		t.Fatalf("Failed to unmarshal JSON back to struct: %v", err)
+	}
+
+	// Verify round-trip integrity
+	if unmarshaled.Selection.SelectionType != selection.Selection.SelectionType {
+		t.Error("Round-trip failed: SelectionType mismatch")
+	}
+	if unmarshaled.Selection.IncludeRuntime != selection.Selection.IncludeRuntime {
+		t.Error("Round-trip failed: IncludeRuntime mismatch")
 	}
 }
 
