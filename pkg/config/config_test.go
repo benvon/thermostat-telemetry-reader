@@ -8,60 +8,73 @@ import (
 	"time"
 )
 
-func TestSubstituteEnvVars(t *testing.T) {
+func TestViperEnvVarBinding(t *testing.T) {
 	tests := []struct {
 		name     string
-		input    string
+		config   string
 		envVars  map[string]string
-		expected string
+		validate func(*testing.T, *Config)
 	}{
 		{
-			name:     "simple variable substitution",
-			input:    "client_id: ${TEST_CLIENT_ID}",
-			envVars:  map[string]string{"TEST_CLIENT_ID": "my-client-123"},
-			expected: "client_id: my-client-123",
+			name: "environment variable override",
+			config: `
+ttr:
+  log_level: "info"
+  poll_interval: "2m"
+  backfill_window: "24h"
+providers:
+  - name: "ecobee"
+    enabled: true
+    settings:
+      client_id: "default-client-id"
+sinks:
+  - name: "elasticsearch"
+    enabled: true
+    settings:
+      url: "http://localhost:9200"
+`,
+			envVars: map[string]string{
+				"TTR_LOG_LEVEL":                  "debug",
+				"PROVIDERS_0_SETTINGS_CLIENT_ID": "env-client-id",
+			},
+			validate: func(t *testing.T, cfg *Config) {
+				if cfg.TTR.LogLevel != "debug" {
+					t.Errorf("Expected log_level to be overridden by env var, got %s", cfg.TTR.LogLevel)
+				}
+				if cfg.Providers[0].Settings["client_id"] != "env-client-id" {
+					t.Errorf("Expected client_id to be overridden by env var, got %v", cfg.Providers[0].Settings["client_id"])
+				}
+			},
 		},
 		{
-			name:     "variable with default - env var exists",
-			input:    "api_key: ${TEST_API_KEY:-default-key}",
-			envVars:  map[string]string{"TEST_API_KEY": "real-key"},
-			expected: "api_key: real-key",
-		},
-		{
-			name:     "variable with default - env var missing",
-			input:    "api_key: ${MISSING_KEY:-default-key}",
-			envVars:  map[string]string{},
-			expected: "api_key: default-key",
-		},
-		{
-			name:     "variable missing no default",
-			input:    "token: ${MISSING_TOKEN}",
-			envVars:  map[string]string{},
-			expected: "token: ",
-		},
-		{
-			name:     "multiple variables",
-			input:    "url: ${HOST}:${PORT}",
-			envVars:  map[string]string{"HOST": "localhost", "PORT": "9200"},
-			expected: "url: localhost:9200",
-		},
-		{
-			name:     "no variables",
-			input:    "plain: text",
-			envVars:  map[string]string{},
-			expected: "plain: text",
-		},
-		{
-			name:     "empty default value",
-			input:    "value: ${VAR:-}",
-			envVars:  map[string]string{},
-			expected: "value: ",
-		},
-		{
-			name:     "default with special characters",
-			input:    "url: ${ES_URL:-https://localhost:9200}",
-			envVars:  map[string]string{},
-			expected: "url: https://localhost:9200",
+			name: "default values from Viper",
+			config: `
+ttr:
+  poll_interval: "10m"
+  backfill_window: "48h"
+providers:
+  - name: "ecobee"
+    enabled: true
+    settings:
+      client_id: "test-client-id"
+sinks:
+  - name: "elasticsearch"
+    enabled: true
+    settings:
+      url: "http://localhost:9200"
+`,
+			envVars: map[string]string{},
+			validate: func(t *testing.T, cfg *Config) {
+				if cfg.TTR.Timezone != "UTC" {
+					t.Errorf("Expected default timezone UTC, got %s", cfg.TTR.Timezone)
+				}
+				if cfg.TTR.LogLevel != "info" {
+					t.Errorf("Expected default log_level info, got %s", cfg.TTR.LogLevel)
+				}
+				if cfg.TTR.HealthPort != 8080 {
+					t.Errorf("Expected default health_port 8080, got %d", cfg.TTR.HealthPort)
+				}
+			},
 		},
 	}
 
@@ -72,13 +85,21 @@ func TestSubstituteEnvVars(t *testing.T) {
 				t.Setenv(key, value)
 			}
 
-			// Run substitution
-			result := substituteEnvVars(tt.input)
-
-			// Verify result
-			if result != tt.expected {
-				t.Errorf("substituteEnvVars() = %q, want %q", result, tt.expected)
+			// Create temporary config file
+			tempDir := t.TempDir()
+			configPath := filepath.Join(tempDir, "test-config.yaml")
+			if err := os.WriteFile(configPath, []byte(tt.config), 0644); err != nil {
+				t.Fatalf("Failed to write config file: %v", err)
 			}
+
+			// Load configuration
+			config, err := LoadConfig(configPath)
+			if err != nil {
+				t.Fatalf("Failed to load config: %v", err)
+			}
+
+			// Run validation
+			tt.validate(t, config)
 		})
 	}
 }
