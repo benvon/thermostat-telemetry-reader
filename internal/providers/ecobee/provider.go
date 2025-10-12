@@ -82,7 +82,7 @@ func (p *Provider) GetSummary(ctx context.Context, tr model.ThermostatRef) (mode
 	}
 
 	resp, err := p.authManager.makeAuthenticatedRequest(ctx, "/thermostatSummary", map[string]string{
-		"selection": string(selectionJSON),
+		"json": string(selectionJSON),
 	})
 	if err != nil {
 		return model.Summary{}, fmt.Errorf("requesting thermostat summary: %w", err)
@@ -131,7 +131,7 @@ func (p *Provider) GetSnapshot(ctx context.Context, tr model.ThermostatRef, sinc
 	}
 
 	resp, err := p.authManager.makeAuthenticatedRequest(ctx, "/thermostat", map[string]string{
-		"selection": string(selectionJSON),
+		"json": string(selectionJSON),
 	})
 	if err != nil {
 		return model.Snapshot{}, fmt.Errorf("requesting thermostat snapshot: %w", err)
@@ -185,7 +185,7 @@ func (p *Provider) GetRuntime(ctx context.Context, tr model.ThermostatRef, from,
 		"startDate": startDate,
 		"endDate":   endDate,
 		"columns":   "zoneHeatTemp,zoneCoolTemp,zoneAveTemp,outdoorTemp,outdoorHumidity,compHeat1,compHeat2,compCool1,compCool2,fan,hvacMode,zoneClimateRef",
-		"selection": string(selectionJSON),
+		"json":      string(selectionJSON),
 	}
 
 	resp, err := p.authManager.makeAuthenticatedRequest(ctx, "/runtimeReport", params)

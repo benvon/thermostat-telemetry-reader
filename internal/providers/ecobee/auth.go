@@ -179,17 +179,21 @@ func (a *AuthManager) makeAuthenticatedRequest(ctx context.Context, endpoint str
 	// Add query parameters
 	q := req.URL.Query()
 
-	// Build the selection JSON properly
-	selection := NewDefaultSelection()
-	selectionJSON, err := json.Marshal(selection)
-	if err != nil {
-		return nil, fmt.Errorf("marshaling selection JSON: %w", err)
-	}
-	q.Set("json", string(selectionJSON))
-
+	// Add all provided parameters
 	for key, value := range params {
 		q.Set(key, value)
 	}
+
+	// Only set default selection if not already provided
+	if _, hasSelection := params["json"]; !hasSelection {
+		selection := NewDefaultSelection()
+		selectionJSON, err := json.Marshal(selection)
+		if err != nil {
+			return nil, fmt.Errorf("marshaling selection JSON: %w", err)
+		}
+		q.Set("json", string(selectionJSON))
+	}
+
 	req.URL.RawQuery = q.Encode()
 
 	req.Header.Set("Authorization", "Bearer "+token)
