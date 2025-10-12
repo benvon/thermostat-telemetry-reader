@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -314,7 +315,7 @@ sinks:
 			if tt.expectError {
 				if err == nil {
 					t.Error("Expected error but got none")
-				} else if tt.errorMsg != "" && !contains(err.Error(), tt.errorMsg) {
+				} else if tt.errorMsg != "" && !strings.Contains(err.Error(), tt.errorMsg) {
 					t.Errorf("Expected error message to contain %q, got %q", tt.errorMsg, err.Error())
 				}
 			} else {
@@ -432,24 +433,4 @@ func TestGetEnabledSinks(t *testing.T) {
 	if names["mongodb"] {
 		t.Error("Expected mongodb to be disabled")
 	}
-}
-
-// contains checks if a string contains a substring
-func contains(s, substr string) bool {
-	return len(s) >= len(substr) &&
-		(s == substr ||
-			len(s) > len(substr) &&
-				(s[:len(substr)] == substr ||
-					s[len(s)-len(substr):] == substr ||
-					indexOf(s, substr) >= 0))
-}
-
-// indexOf finds the index of a substring in a string
-func indexOf(s, substr string) int {
-	for i := 0; i <= len(s)-len(substr); i++ {
-		if s[i:i+len(substr)] == substr {
-			return i
-		}
-	}
-	return -1
 }
