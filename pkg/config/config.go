@@ -101,17 +101,17 @@ func LoadConfig(configPath string) (*Config, error) {
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
 
 	// Bind specific environment variables for nested structures
-	v.BindEnv(keyTTRTimezone, envTTRTimezone)
-	v.BindEnv(keyTTRPollInterval, envTTRPollInterval)
-	v.BindEnv(keyTTRBackfillWindow, envTTRBackfillWindow)
-	v.BindEnv(keyTTRLogLevel, envTTRLogLevel)
-	v.BindEnv(keyTTRHealthPort, envTTRHealthPort)
-	v.BindEnv(keyTTRMetricsPort, envTTRMetricsPort)
+	_ = v.BindEnv(keyTTRTimezone, envTTRTimezone)
+	_ = v.BindEnv(keyTTRPollInterval, envTTRPollInterval)
+	_ = v.BindEnv(keyTTRBackfillWindow, envTTRBackfillWindow)
+	_ = v.BindEnv(keyTTRLogLevel, envTTRLogLevel)
+	_ = v.BindEnv(keyTTRHealthPort, envTTRHealthPort)
+	_ = v.BindEnv(keyTTRMetricsPort, envTTRMetricsPort)
 
 	// Bind provider and sink environment variables (for testing)
-	v.BindEnv("providers.0.settings.client_id", envProviderSettingsClientID)
-	v.BindEnv("providers.0.settings.refresh_token", envProviderSettingsRefreshToken)
-	v.BindEnv("sinks.0.settings.api_key", envSinkSettingsAPIKey)
+	_ = v.BindEnv("providers.0.settings.client_id", envProviderSettingsClientID)
+	_ = v.BindEnv("providers.0.settings.refresh_token", envProviderSettingsRefreshToken)
+	_ = v.BindEnv("sinks.0.settings.api_key", envSinkSettingsAPIKey)
 
 	// Read configuration file
 	if err := v.ReadInConfig(); err != nil {
