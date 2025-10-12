@@ -47,6 +47,71 @@ sinks:
 			},
 		},
 		{
+			name: "multiple providers and sinks with env overrides",
+			config: `
+ttr:
+  log_level: "info"
+  poll_interval: "5m"
+  backfill_window: "168h"
+providers:
+  - name: "ecobee"
+    enabled: true
+    settings:
+      client_id: "ecobee-default"
+      refresh_token: "ecobee-token-default"
+  - name: "nest"
+    enabled: true
+    settings:
+      client_id: "nest-default"
+      api_key: "nest-key-default"
+sinks:
+  - name: "elasticsearch"
+    enabled: true
+    settings:
+      url: "http://localhost:9200"
+      api_key: "es-default"
+  - name: "prometheus"
+    enabled: true
+    settings:
+      url: "http://localhost:9090"
+`,
+			envVars: map[string]string{
+				"PROVIDERS_0_SETTINGS_CLIENT_ID":     "ecobee-env",
+				"PROVIDERS_0_SETTINGS_REFRESH_TOKEN": "ecobee-token-env",
+				"PROVIDERS_1_SETTINGS_CLIENT_ID":     "nest-env",
+				"PROVIDERS_1_SETTINGS_API_KEY":       "nest-key-env",
+				"SINKS_0_SETTINGS_API_KEY":           "es-env",
+				"SINKS_1_SETTINGS_URL":               "http://prom-env:9090",
+			},
+			validate: func(t *testing.T, cfg *Config) {
+				// Verify first provider overrides
+				if cfg.Providers[0].Settings["client_id"] != "ecobee-env" {
+					t.Errorf("Expected providers[0].client_id to be overridden, got %v", cfg.Providers[0].Settings["client_id"])
+				}
+				if cfg.Providers[0].Settings["refresh_token"] != "ecobee-token-env" {
+					t.Errorf("Expected providers[0].refresh_token to be overridden, got %v", cfg.Providers[0].Settings["refresh_token"])
+				}
+
+				// Verify second provider overrides
+				if cfg.Providers[1].Settings["client_id"] != "nest-env" {
+					t.Errorf("Expected providers[1].client_id to be overridden, got %v", cfg.Providers[1].Settings["client_id"])
+				}
+				if cfg.Providers[1].Settings["api_key"] != "nest-key-env" {
+					t.Errorf("Expected providers[1].api_key to be overridden, got %v", cfg.Providers[1].Settings["api_key"])
+				}
+
+				// Verify first sink overrides
+				if cfg.Sinks[0].Settings["api_key"] != "es-env" {
+					t.Errorf("Expected sinks[0].api_key to be overridden, got %v", cfg.Sinks[0].Settings["api_key"])
+				}
+
+				// Verify second sink overrides
+				if cfg.Sinks[1].Settings["url"] != "http://prom-env:9090" {
+					t.Errorf("Expected sinks[1].url to be overridden, got %v", cfg.Sinks[1].Settings["url"])
+				}
+			},
+		},
+		{
 			name: "default values from Viper",
 			config: `
 ttr:

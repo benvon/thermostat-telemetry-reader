@@ -31,13 +31,6 @@ const (
 	envTTRMetricsPort    = "TTR_METRICS_PORT"
 )
 
-// Provider/Sink environment variable patterns
-const (
-	envProviderSettingsClientID     = "PROVIDERS_0_SETTINGS_CLIENT_ID"
-	envProviderSettingsRefreshToken = "PROVIDERS_0_SETTINGS_REFRESH_TOKEN"
-	envSinkSettingsAPIKey           = "SINKS_0_SETTINGS_API_KEY"
-)
-
 // Config represents the complete application configuration
 type Config struct {
 	TTR       TTRConfig        `yaml:"ttr"`
@@ -100,18 +93,8 @@ func LoadConfig(configPath string) (*Config, error) {
 	// Replace dots and dashes in env var names with underscores
 	v.SetEnvKeyReplacer(strings.NewReplacer(".", "_", "-", "_"))
 
-	// Bind specific environment variables for nested structures
-	_ = v.BindEnv(keyTTRTimezone, envTTRTimezone)
-	_ = v.BindEnv(keyTTRPollInterval, envTTRPollInterval)
-	_ = v.BindEnv(keyTTRBackfillWindow, envTTRBackfillWindow)
-	_ = v.BindEnv(keyTTRLogLevel, envTTRLogLevel)
-	_ = v.BindEnv(keyTTRHealthPort, envTTRHealthPort)
-	_ = v.BindEnv(keyTTRMetricsPort, envTTRMetricsPort)
-
-	// Bind provider and sink environment variables (for testing)
-	_ = v.BindEnv("providers.0.settings.client_id", envProviderSettingsClientID)
-	_ = v.BindEnv("providers.0.settings.refresh_token", envProviderSettingsRefreshToken)
-	_ = v.BindEnv("sinks.0.settings.api_key", envSinkSettingsAPIKey)
+	// Bind specific environment variables for core settings
+	bindCoreEnvVars(v)
 
 	// Read configuration file
 	if err := v.ReadInConfig(); err != nil {
@@ -119,6 +102,39 @@ func LoadConfig(configPath string) (*Config, error) {
 	}
 
 	// Parse YAML directly first to get the basic structure
+	config, err := parseYAMLConfig(configPath)
+	if err != nil {
+		return nil, err
+	}
+
+	// Set defaults in Viper
+	setViperDefaults(v)
+
+	// Apply configuration overrides from environment variables
+	applyTTRConfigOverrides(v, &config.TTR)
+	applyProviderEnvOverrides(config.Providers)
+	applySinkEnvOverrides(config.Sinks)
+
+	// Validate configuration
+	if err := validateConfig(config); err != nil {
+		return nil, fmt.Errorf("validating config: %w", err)
+	}
+
+	return config, nil
+}
+
+// bindCoreEnvVars binds core TTR environment variables to Viper
+func bindCoreEnvVars(v *viper.Viper) {
+	_ = v.BindEnv(keyTTRTimezone, envTTRTimezone)
+	_ = v.BindEnv(keyTTRPollInterval, envTTRPollInterval)
+	_ = v.BindEnv(keyTTRBackfillWindow, envTTRBackfillWindow)
+	_ = v.BindEnv(keyTTRLogLevel, envTTRLogLevel)
+	_ = v.BindEnv(keyTTRHealthPort, envTTRHealthPort)
+	_ = v.BindEnv(keyTTRMetricsPort, envTTRMetricsPort)
+}
+
+// parseYAMLConfig reads and parses the YAML configuration file
+func parseYAMLConfig(configPath string) (*Config, error) {
 	data, err := os.ReadFile(configPath)
 	if err != nil {
 		return nil, fmt.Errorf("reading config file for YAML parsing: %w", err)
@@ -129,89 +145,102 @@ func LoadConfig(configPath string) (*Config, error) {
 		return nil, fmt.Errorf("parsing YAML config: %w", err)
 	}
 
-	// Set defaults in Viper (though we handle most manually now)
-	setViperDefaults(v)
-
-	// Handle duration parsing manually, respecting environment variables
-	pollIntervalStr := v.GetString(keyTTRPollInterval)
-	if pollIntervalStr != "" {
-		if dur, err := time.ParseDuration(pollIntervalStr); err == nil {
-			config.TTR.PollInterval = dur
-		} else if config.TTR.PollInterval == 0 {
-			config.TTR.PollInterval = 5 * time.Minute
-		}
-	} else if config.TTR.PollInterval == 0 {
-		config.TTR.PollInterval = 5 * time.Minute
-	}
-
-	backfillWindowStr := v.GetString(keyTTRBackfillWindow)
-	if backfillWindowStr != "" {
-		if dur, err := time.ParseDuration(backfillWindowStr); err == nil {
-			config.TTR.BackfillWindow = dur
-		} else if config.TTR.BackfillWindow == 0 {
-			config.TTR.BackfillWindow = 168 * time.Hour
-		}
-	} else if config.TTR.BackfillWindow == 0 {
-		config.TTR.BackfillWindow = 168 * time.Hour
-	}
-
-	// Override with environment variables and apply defaults
-	if v.IsSet(keyTTRTimezone) {
-		config.TTR.Timezone = v.GetString(keyTTRTimezone)
-	} else if config.TTR.Timezone == "" {
-		config.TTR.Timezone = "UTC"
-	}
-
-	if v.IsSet(keyTTRLogLevel) {
-		config.TTR.LogLevel = v.GetString(keyTTRLogLevel)
-	} else if config.TTR.LogLevel == "" {
-		config.TTR.LogLevel = "info"
-	}
-
-	if v.IsSet(keyTTRHealthPort) {
-		config.TTR.HealthPort = v.GetInt(keyTTRHealthPort)
-	} else if config.TTR.HealthPort == 0 {
-		config.TTR.HealthPort = 8080
-	}
-
-	if v.IsSet(keyTTRMetricsPort) {
-		config.TTR.MetricsPort = v.GetInt(keyTTRMetricsPort)
-	} else if config.TTR.MetricsPort == 0 {
-		config.TTR.MetricsPort = 9090
-	}
-
-	// Handle provider settings environment variables
-	for i := range config.Providers {
-		if v.IsSet(fmt.Sprintf("providers.%d.settings.client_id", i)) {
-			if config.Providers[i].Settings == nil {
-				config.Providers[i].Settings = make(map[string]any)
-			}
-			config.Providers[i].Settings["client_id"] = v.GetString(fmt.Sprintf("providers.%d.settings.client_id", i))
-		}
-		if v.IsSet(fmt.Sprintf("providers.%d.settings.refresh_token", i)) {
-			if config.Providers[i].Settings == nil {
-				config.Providers[i].Settings = make(map[string]any)
-			}
-			config.Providers[i].Settings["refresh_token"] = v.GetString(fmt.Sprintf("providers.%d.settings.refresh_token", i))
-		}
-	}
-
-	// Handle sink settings environment variables
-	for i := range config.Sinks {
-		if v.IsSet(fmt.Sprintf("sinks.%d.settings.api_key", i)) {
-			if config.Sinks[i].Settings == nil {
-				config.Sinks[i].Settings = make(map[string]any)
-			}
-			config.Sinks[i].Settings["api_key"] = v.GetString(fmt.Sprintf("sinks.%d.settings.api_key", i))
-		}
-	}
-
-	// Validate configuration
-	if err := validateConfig(&config); err != nil {
-		return nil, fmt.Errorf("validating config: %w", err)
-	}
-
 	return &config, nil
+}
+
+// applyTTRConfigOverrides applies environment variable overrides to TTR config
+func applyTTRConfigOverrides(v *viper.Viper, ttr *TTRConfig) {
+	// Handle durations with environment variable overrides
+	applyDurationOverride(v, keyTTRPollInterval, &ttr.PollInterval, 5*time.Minute)
+	applyDurationOverride(v, keyTTRBackfillWindow, &ttr.BackfillWindow, 168*time.Hour)
+
+	// Handle string overrides with defaults
+	applyStringOverride(v, keyTTRTimezone, &ttr.Timezone, "UTC")
+	applyStringOverride(v, keyTTRLogLevel, &ttr.LogLevel, "info")
+
+	// Handle int overrides with defaults
+	applyIntOverride(v, keyTTRHealthPort, &ttr.HealthPort, 8080)
+	applyIntOverride(v, keyTTRMetricsPort, &ttr.MetricsPort, 9090)
+}
+
+// applyDurationOverride applies a duration override from environment variable or uses default
+func applyDurationOverride(v *viper.Viper, key string, target *time.Duration, defaultVal time.Duration) {
+	if strVal := v.GetString(key); strVal != "" {
+		if dur, err := time.ParseDuration(strVal); err == nil {
+			*target = dur
+			return
+		}
+	}
+	if *target == 0 {
+		*target = defaultVal
+	}
+}
+
+// applyStringOverride applies a string override from environment variable or uses default
+func applyStringOverride(v *viper.Viper, key string, target *string, defaultVal string) {
+	if v.IsSet(key) {
+		*target = v.GetString(key)
+	} else if *target == "" {
+		*target = defaultVal
+	}
+}
+
+// applyIntOverride applies an int override from environment variable or uses default
+func applyIntOverride(v *viper.Viper, key string, target *int, defaultVal int) {
+	if v.IsSet(key) {
+		*target = v.GetInt(key)
+	} else if *target == 0 {
+		*target = defaultVal
+	}
+}
+
+// applyProviderEnvOverrides applies environment variable overrides to provider settings
+// Supports environment variables like: PROVIDERS_0_SETTINGS_CLIENT_ID, PROVIDERS_1_SETTINGS_REFRESH_TOKEN, etc.
+func applyProviderEnvOverrides(providers []ProviderConfig) {
+	commonSettings := []string{"client_id", "refresh_token", "api_key", "api_secret"}
+
+	for i := range providers {
+		if providers[i].Settings == nil {
+			providers[i].Settings = make(map[string]any)
+		}
+
+		envPrefix := fmt.Sprintf("PROVIDERS_%d_SETTINGS_", i)
+		applySettingsEnvOverrides(providers[i].Settings, envPrefix, commonSettings)
+	}
+}
+
+// applySinkEnvOverrides applies environment variable overrides to sink settings
+// Supports environment variables like: SINKS_0_SETTINGS_API_KEY, SINKS_1_SETTINGS_URL, etc.
+func applySinkEnvOverrides(sinks []SinkConfig) {
+	commonSettings := []string{"api_key", "url", "username", "password"}
+
+	for i := range sinks {
+		if sinks[i].Settings == nil {
+			sinks[i].Settings = make(map[string]any)
+		}
+
+		envPrefix := fmt.Sprintf("SINKS_%d_SETTINGS_", i)
+		applySettingsEnvOverrides(sinks[i].Settings, envPrefix, commonSettings)
+	}
+}
+
+// applySettingsEnvOverrides applies environment variable overrides to a settings map
+func applySettingsEnvOverrides(settings map[string]any, envPrefix string, commonSettings []string) {
+	// Check existing settings keys
+	for key := range settings {
+		envKey := envPrefix + strings.ToUpper(key)
+		if envVal := os.Getenv(envKey); envVal != "" {
+			settings[key] = envVal
+		}
+	}
+
+	// Check common settings that might not be in the config yet
+	for _, setting := range commonSettings {
+		envKey := envPrefix + strings.ToUpper(setting)
+		if envVal := os.Getenv(envKey); envVal != "" {
+			settings[setting] = envVal
+		}
+	}
 }
 
 // PrintEffectiveConfig prints the effective configuration for observability
@@ -281,10 +310,18 @@ func GetEnvironmentVariableHelp() string {
   TTR_HEALTH_PORT     Set health check port (default: 8080)
   TTR_METRICS_PORT    Set metrics port (default: 9090)
 
-Provider/Sink Settings:
-  PROVIDERS_0_SETTINGS_CLIENT_ID      Override provider 0 client_id
-  PROVIDERS_0_SETTINGS_REFRESH_TOKEN  Override provider 0 refresh_token
-  SINKS_0_SETTINGS_API_KEY           Override sink 0 api_key
+Provider/Sink Settings (supports multiple indices):
+  PROVIDERS_{N}_SETTINGS_{KEY}  Override provider N setting (e.g., PROVIDERS_0_SETTINGS_CLIENT_ID)
+  SINKS_{N}_SETTINGS_{KEY}      Override sink N setting (e.g., SINKS_0_SETTINGS_API_KEY)
+  
+  Common provider settings: CLIENT_ID, REFRESH_TOKEN, API_KEY, API_SECRET
+  Common sink settings: API_KEY, URL, USERNAME, PASSWORD
+
+Examples:
+  PROVIDERS_0_SETTINGS_CLIENT_ID=abc123
+  PROVIDERS_1_SETTINGS_REFRESH_TOKEN=xyz789
+  SINKS_0_SETTINGS_API_KEY=secret123
+  SINKS_1_SETTINGS_URL=https://es.example.com
 
 Configuration Precedence (highest to lowest):
   1. Environment variables
