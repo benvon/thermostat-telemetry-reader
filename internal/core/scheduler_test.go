@@ -21,7 +21,10 @@ func TestGenerateRuntime5mID(t *testing.T) {
 		Climate:        "Home",
 	}
 
-	id := idGen.GenerateRuntime5mID(doc)
+	id, err := idGen.GenerateRuntime5mID(doc)
+	if err != nil {
+		t.Fatalf("Failed to generate ID: %v", err)
+	}
 
 	// Verify format
 	if !strings.Contains(id, "therm-001") {
@@ -33,7 +36,10 @@ func TestGenerateRuntime5mID(t *testing.T) {
 	}
 
 	// Verify determinism
-	id2 := idGen.GenerateRuntime5mID(doc)
+	id2, err := idGen.GenerateRuntime5mID(doc)
+	if err != nil {
+		t.Fatalf("Failed to generate ID: %v", err)
+	}
 	if id != id2 {
 		t.Errorf("IDs should be deterministic. First: %s, Second: %s", id, id2)
 	}
@@ -49,7 +55,10 @@ func TestGenerateDeviceSnapshotID(t *testing.T) {
 		CollectedAt:    time.Date(2024, 3, 10, 12, 0, 0, 0, time.UTC),
 	}
 
-	id := idGen.GenerateDeviceSnapshotID(doc)
+	id, err := idGen.GenerateDeviceSnapshotID(doc)
+	if err != nil {
+		t.Fatalf("Failed to generate ID: %v", err)
+	}
 
 	// Verify format
 	if !strings.Contains(id, "therm-002") {
@@ -61,7 +70,10 @@ func TestGenerateDeviceSnapshotID(t *testing.T) {
 	}
 
 	// Verify determinism
-	id2 := idGen.GenerateDeviceSnapshotID(doc)
+	id2, err := idGen.GenerateDeviceSnapshotID(doc)
+	if err != nil {
+		t.Fatalf("Failed to generate ID: %v", err)
+	}
 	if id != id2 {
 		t.Errorf("IDs should be deterministic. First: %s, Second: %s", id, id2)
 	}
@@ -69,7 +81,10 @@ func TestGenerateDeviceSnapshotID(t *testing.T) {
 	// Different timestamps should produce different IDs
 	doc2 := *doc
 	doc2.CollectedAt = time.Date(2024, 3, 10, 13, 0, 0, 0, time.UTC)
-	id3 := idGen.GenerateDeviceSnapshotID(&doc2)
+	id3, err := idGen.GenerateDeviceSnapshotID(&doc2)
+	if err != nil {
+		t.Fatalf("Failed to generate ID: %v", err)
+	}
 	if id == id3 {
 		t.Error("Different collection times should produce different IDs")
 	}

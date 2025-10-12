@@ -184,7 +184,11 @@ func (s *Scheduler) backfillThermostat(ctx context.Context, provider model.Provi
 
 		// Generate document ID
 		idGen := &IDGenerator{}
-		docID := idGen.GenerateRuntime5mID(canonical)
+		docID, err := idGen.GenerateRuntime5mID(canonical)
+		if err != nil {
+			s.logger.Error("Failed to generate document ID for runtime_5m", "error", err)
+			continue
+		}
 
 		docs = append(docs, model.Doc{
 			ID:   docID,
@@ -297,7 +301,10 @@ func (s *Scheduler) fetchAndProcessSnapshot(ctx context.Context, provider model.
 
 	// Generate document ID
 	idGen := &IDGenerator{}
-	docID := idGen.GenerateDeviceSnapshotID(canonical)
+	docID, err := idGen.GenerateDeviceSnapshotID(canonical)
+	if err != nil {
+		return fmt.Errorf("generating document ID for device_snapshot: %w", err)
+	}
 
 	doc := model.Doc{
 		ID:   docID,
@@ -344,7 +351,11 @@ func (s *Scheduler) fetchAndProcessRuntime(ctx context.Context, provider model.P
 
 		// Generate document ID
 		idGen := &IDGenerator{}
-		docID := idGen.GenerateRuntime5mID(canonical)
+		docID, err := idGen.GenerateRuntime5mID(canonical)
+		if err != nil {
+			s.logger.Error("Failed to generate document ID for runtime_5m", "error", err)
+			continue
+		}
 
 		docs = append(docs, model.Doc{
 			ID:   docID,
@@ -403,14 +414,14 @@ func (s *Scheduler) writeToAllSinks(ctx context.Context, docs []model.Doc) error
 type IDGenerator struct{}
 
 // GenerateRuntime5mID generates a deterministic ID for runtime_5m documents
-func (g *IDGenerator) GenerateRuntime5mID(doc *model.Runtime5m) string {
+func (g *IDGenerator) GenerateRuntime5mID(doc *model.Runtime5m) (string, error) {
 	// This implementation assumes that the combination of ThermostatID, EventTime, and Type is globally unique
 	// for each runtime_5m document, which matches the uniqueness requirements of our sinks. If the sink logic
 	// changes or requires additional fields for uniqueness, this method should be updated accordingly.
-	return fmt.Sprintf("%s:%s:%s", doc.ThermostatID, doc.EventTime.Format("2006-01-02T15:04:05Z"), doc.Type)
+	return fmt.Sprintf("%s:%s:%s", doc.ThermostatID, doc.EventTime.Format("2006-01-02T15:04:05Z"), doc.Type), nil
 }
 
 // GenerateDeviceSnapshotID generates a deterministic ID for device_snapshot documents
-func (g *IDGenerator) GenerateDeviceSnapshotID(doc *model.DeviceSnapshot) string {
-	return fmt.Sprintf("%s:%s", doc.ThermostatID, doc.CollectedAt.Format("2006-01-02T15:04:05Z"))
+func (g *IDGenerator) GenerateDeviceSnapshotID(doc *model.DeviceSnapshot) (string, error) {
+	return fmt.Sprintf("%s:%s", doc.ThermostatID, doc.CollectedAt.Format("2006-01-02T15:04:05Z")), nil
 }

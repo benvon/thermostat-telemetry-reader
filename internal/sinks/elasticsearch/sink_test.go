@@ -24,7 +24,10 @@ func TestGenerateRuntime5mID(t *testing.T) {
 		SetCoolC:       floatPtr(25.0),
 	}
 
-	id := gen.GenerateRuntime5mID(doc)
+	id, err := gen.GenerateRuntime5mID(doc)
+	if err != nil {
+		t.Fatalf("Failed to generate ID: %v", err)
+	}
 
 	// Verify ID contains expected components
 	if !strings.HasPrefix(id, "test-thermostat-123:") {
@@ -46,7 +49,10 @@ func TestGenerateRuntime5mID(t *testing.T) {
 	}
 
 	// Verify determinism - same input should produce same ID
-	id2 := gen.GenerateRuntime5mID(doc)
+	id2, err := gen.GenerateRuntime5mID(doc)
+	if err != nil {
+		t.Fatalf("Failed to generate ID: %v", err)
+	}
 	if id != id2 {
 		t.Errorf("IDs should be deterministic. First: %s, Second: %s", id, id2)
 	}
@@ -54,7 +60,10 @@ func TestGenerateRuntime5mID(t *testing.T) {
 	// Verify different data produces different ID
 	doc2 := *doc
 	doc2.Mode = "cool"
-	id3 := gen.GenerateRuntime5mID(&doc2)
+	id3, err := gen.GenerateRuntime5mID(&doc2)
+	if err != nil {
+		t.Fatalf("Failed to generate ID: %v", err)
+	}
 	if id == id3 {
 		t.Error("Different documents should produce different IDs")
 	}
@@ -82,7 +91,10 @@ func TestGenerateTransitionID(t *testing.T) {
 		},
 	}
 
-	id := gen.GenerateTransitionID(doc)
+	id, err := gen.GenerateTransitionID(doc)
+	if err != nil {
+		t.Fatalf("Failed to generate ID: %v", err)
+	}
 
 	// Verify ID contains expected components
 	if !strings.HasPrefix(id, "test-thermostat-456:") {
@@ -100,7 +112,10 @@ func TestGenerateTransitionID(t *testing.T) {
 	}
 
 	// Verify determinism
-	id2 := gen.GenerateTransitionID(doc)
+	id2, err := gen.GenerateTransitionID(doc)
+	if err != nil {
+		t.Fatalf("Failed to generate ID: %v", err)
+	}
 	if id != id2 {
 		t.Errorf("IDs should be deterministic. First: %s, Second: %s", id, id2)
 	}
@@ -108,7 +123,10 @@ func TestGenerateTransitionID(t *testing.T) {
 	// Verify different transitions produce different IDs
 	doc2 := *doc
 	doc2.Next.Mode = "cool"
-	id3 := gen.GenerateTransitionID(&doc2)
+	id3, err := gen.GenerateTransitionID(&doc2)
+	if err != nil {
+		t.Fatalf("Failed to generate ID: %v", err)
+	}
 	if id == id3 {
 		t.Error("Different transitions should produce different IDs")
 	}
@@ -126,7 +144,10 @@ func TestGenerateDeviceSnapshotID(t *testing.T) {
 		EventsActive:   []any{map[string]any{"type": "hold"}},
 	}
 
-	id := gen.GenerateDeviceSnapshotID(doc)
+	id, err := gen.GenerateDeviceSnapshotID(doc)
+	if err != nil {
+		t.Fatalf("Failed to generate ID: %v", err)
+	}
 
 	// Verify ID contains expected components
 	if !strings.HasPrefix(id, "test-thermostat-789:") {
@@ -138,7 +159,10 @@ func TestGenerateDeviceSnapshotID(t *testing.T) {
 	}
 
 	// Verify determinism
-	id2 := gen.GenerateDeviceSnapshotID(doc)
+	id2, err := gen.GenerateDeviceSnapshotID(doc)
+	if err != nil {
+		t.Fatalf("Failed to generate ID: %v", err)
+	}
 	if id != id2 {
 		t.Errorf("IDs should be deterministic. First: %s, Second: %s", id, id2)
 	}
@@ -146,7 +170,10 @@ func TestGenerateDeviceSnapshotID(t *testing.T) {
 	// Verify different times produce different IDs
 	doc2 := *doc
 	doc2.CollectedAt = time.Date(2024, 1, 15, 17, 0, 0, 0, time.UTC)
-	id3 := gen.GenerateDeviceSnapshotID(&doc2)
+	id3, err := gen.GenerateDeviceSnapshotID(&doc2)
+	if err != nil {
+		t.Fatalf("Failed to generate ID: %v", err)
+	}
 	if id == id3 {
 		t.Error("Different collection times should produce different IDs")
 	}

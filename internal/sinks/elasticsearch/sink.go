@@ -12,6 +12,11 @@ import (
 	"github.com/benvon/thermostat-telemetry-reader/pkg/model"
 )
 
+const (
+	// timestampFormat is the standard timestamp format used for document IDs
+	timestampFormat = "2006-01-02T15:04:05Z"
+)
+
 // Sink implements the Elasticsearch data sink
 type Sink struct {
 	client          *http.Client
@@ -266,42 +271,54 @@ func NewIDGenerator() *IDGenerator {
 }
 
 // GenerateRuntime5mID generates a deterministic ID for runtime_5m documents
-func (g *IDGenerator) GenerateRuntime5mID(doc *model.Runtime5m) string {
+func (g *IDGenerator) GenerateRuntime5mID(doc *model.Runtime5m) (string, error) {
 	// Format: thermostat_id:event_time:type:hash(body)
-	eventTimeStr := doc.EventTime.Format("2006-01-02T15:04:05Z")
-	bodyHash := g.hashDocument(doc)
-	return fmt.Sprintf("%s:%s:%s:%s", doc.ThermostatID, eventTimeStr, doc.Type, bodyHash)
+	eventTimeStr := doc.EventTime.Format(timestampFormat)
+	bodyHash, err := g.hashDocument(doc)
+	if err != nil {
+		return "", fmt.Errorf("hashing runtime document: %w", err)
+	}
+	return fmt.Sprintf("%s:%s:%s:%s", doc.ThermostatID, eventTimeStr, doc.Type, bodyHash), nil
 }
 
 // GenerateTransitionID generates a deterministic ID for transition documents
-func (g *IDGenerator) GenerateTransitionID(doc *model.Transition) string {
+func (g *IDGenerator) GenerateTransitionID(doc *model.Transition) (string, error) {
 	// Format: thermostat_id:event_time:hash(prev,next)
-	eventTimeStr := doc.EventTime.Format("2006-01-02T15:04:05Z")
-	prevNextHash := g.hashTransition(doc.Prev, doc.Next)
-	return fmt.Sprintf("%s:%s:%s", doc.ThermostatID, eventTimeStr, prevNextHash)
+	eventTimeStr := doc.EventTime.Format(timestampFormat)
+	prevNextHash, err := g.hashTransition(doc.Prev, doc.Next)
+	if err != nil {
+		return "", fmt.Errorf("hashing transition: %w", err)
+	}
+	return fmt.Sprintf("%s:%s:%s", doc.ThermostatID, eventTimeStr, prevNextHash), nil
 }
 
 // GenerateDeviceSnapshotID generates a deterministic ID for device_snapshot documents
-func (g *IDGenerator) GenerateDeviceSnapshotID(doc *model.DeviceSnapshot) string {
+func (g *IDGenerator) GenerateDeviceSnapshotID(doc *model.DeviceSnapshot) (string, error) {
 	// Format: thermostat_id:collected_at
-	collectedAtStr := doc.CollectedAt.Format("2006-01-02T15:04:05Z")
-	return fmt.Sprintf("%s:%s", doc.ThermostatID, collectedAtStr)
+	collectedAtStr := doc.CollectedAt.Format(timestampFormat)
+	return fmt.Sprintf("%s:%s", doc.ThermostatID, collectedAtStr), nil
 }
 
 // hashDocument creates a hash of the document body
-func (g *IDGenerator) hashDocument(doc any) string {
-	docBytes, _ := json.Marshal(doc)
+func (g *IDGenerator) hashDocument(doc any) (string, error) {
+	docBytes, err := json.Marshal(doc)
+	if err != nil {
+		return "", fmt.Errorf("marshaling document for hash: %w", err)
+	}
 	hash := sha256.Sum256(docBytes)
-	return fmt.Sprintf("%x", hash)[:16] // Use first 16 characters
+	return fmt.Sprintf("%x", hash)[:16], nil // Use first 16 characters
 }
 
 // hashTransition creates a hash of the previous and next states
-func (g *IDGenerator) hashTransition(prev, next model.State) string {
+func (g *IDGenerator) hashTransition(prev, next model.State) (string, error) {
 	transition := map[string]any{
 		"prev": prev,
 		"next": next,
 	}
-	transitionBytes, _ := json.Marshal(transition)
+	transitionBytes, err := json.Marshal(transition)
+	if err != nil {
+		return "", fmt.Errorf("marshaling transition for hash: %w", err)
+	}
 	hash := sha256.Sum256(transitionBytes)
-	return fmt.Sprintf("%x", hash)[:16] // Use first 16 characters
+	return fmt.Sprintf("%x", hash)[:16], nil // Use first 16 characters
 }

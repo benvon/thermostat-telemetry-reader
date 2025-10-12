@@ -105,11 +105,11 @@ func FromEquipmentMap(m map[string]bool) EquipmentState {
 // DocumentIDGenerator generates deterministic document IDs
 type DocumentIDGenerator interface {
 	// GenerateRuntime5mID generates ID for runtime_5m documents
-	GenerateRuntime5mID(doc *Runtime5m) string
+	GenerateRuntime5mID(doc *Runtime5m) (string, error)
 
 	// GenerateTransitionID generates ID for transition documents
-	GenerateTransitionID(doc *Transition) string
+	GenerateTransitionID(doc *Transition) (string, error)
 
 	// GenerateDeviceSnapshotID generates ID for device_snapshot documents
-	GenerateDeviceSnapshotID(doc *DeviceSnapshot) string
+	GenerateDeviceSnapshotID(doc *DeviceSnapshot) (string, error)
 }
