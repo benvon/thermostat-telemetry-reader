@@ -1,7 +1,9 @@
 package config
 
 import (
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"strings"
@@ -62,6 +64,16 @@ type SinkConfig struct {
 	Settings map[string]any `yaml:"settings,omitempty"`
 }
 
+const (
+	configRootEnvVar = "TTR_CONFIG_ROOT"
+)
+
+type configPathInfo struct {
+	Absolute string
+	Root     string
+	Relative string
+}
+
 // LoadConfig loads configuration from a YAML file with environment variable substitution
 //
 // Configuration Precedence (highest to lowest):
@@ -81,10 +93,15 @@ type SinkConfig struct {
 //   - PROVIDERS_0_SETTINGS_CLIENT_ID → providers[0].settings.client_id
 //   - SINKS_0_SETTINGS_API_KEY       → sinks[0].settings.api_key
 func LoadConfig(configPath string) (*Config, error) {
+	info, err := resolveConfigPath(configPath)
+	if err != nil {
+		return nil, fmt.Errorf("resolving config path: %w", err)
+	}
+
 	v := viper.New()
 
 	// Set configuration file
-	v.SetConfigFile(configPath)
+	v.SetConfigFile(info.Absolute)
 	v.SetConfigType("yaml")
 
 	// Enable automatic environment variable binding
@@ -98,11 +115,11 @@ func LoadConfig(configPath string) (*Config, error) {
 
 	// Read configuration file
 	if err := v.ReadInConfig(); err != nil {
-		return nil, fmt.Errorf("reading config file %s: %w", configPath, err)
+		return nil, fmt.Errorf("reading config file %s: %w", info.Absolute, err)
 	}
 
 	// Parse YAML directly first to get the basic structure
-	config, err := parseYAMLConfig(configPath)
+	config, err := parseYAMLConfig(info)
 	if err != nil {
 		return nil, err
 	}
@@ -134,8 +151,8 @@ func bindCoreEnvVars(v *viper.Viper) {
 }
 
 // parseYAMLConfig reads and parses the YAML configuration file
-func parseYAMLConfig(configPath string) (*Config, error) {
-	data, err := os.ReadFile(configPath)
+func parseYAMLConfig(info configPathInfo) (*Config, error) {
+	data, err := readConfigFile(info)
 	if err != nil {
 		return nil, fmt.Errorf("reading config file for YAML parsing: %w", err)
 	}
@@ -313,7 +330,7 @@ func GetEnvironmentVariableHelp() string {
 Provider/Sink Settings (supports multiple indices):
   PROVIDERS_{N}_SETTINGS_{KEY}  Override provider N setting (e.g., PROVIDERS_0_SETTINGS_CLIENT_ID)
   SINKS_{N}_SETTINGS_{KEY}      Override sink N setting (e.g., SINKS_0_SETTINGS_API_KEY)
-  
+
   Common provider settings: CLIENT_ID, REFRESH_TOKEN, API_KEY, API_SECRET
   Common sink settings: API_KEY, URL, USERNAME, PASSWORD
 
@@ -325,7 +342,7 @@ Examples:
 
 Configuration Precedence (highest to lowest):
   1. Environment variables
-  2. Configuration file values  
+  2. Configuration file values
   3. Built-in defaults`
 }
 
@@ -429,6 +446,11 @@ func (c *Config) GetEnabledSinks() []SinkConfig {
 
 // CreateExampleConfig creates an example configuration file
 func CreateExampleConfig(path string) error {
+	info, err := resolveConfigPath(path)
+	if err != nil {
+		return fmt.Errorf("resolving example config path: %w", err)
+	}
+
 	config := Config{
 		TTR: TTRConfig{
 			Timezone:       "America/Chicago",
@@ -468,13 +490,120 @@ func CreateExampleConfig(path string) error {
 	}
 
 	// Ensure directory exists
-	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
+	if err := os.MkdirAll(filepath.Dir(info.Absolute), 0750); err != nil {
 		return fmt.Errorf("creating config directory: %w", err)
 	}
 
-	if err := os.WriteFile(path, data, 0600); err != nil {
+	if err := os.WriteFile(info.Absolute, data, 0600); err != nil {
 		return fmt.Errorf("writing example config: %w", err)
 	}
 
 	return nil
+}
+
+func resolveConfigPath(configPath string) (configPathInfo, error) {
+	if configPath == "" {
+		return configPathInfo{}, fmt.Errorf("config path cannot be empty")
+	}
+
+	root, err := determineConfigRoot()
+	if err != nil {
+		return configPathInfo{}, err
+	}
+
+	cleaned := filepath.Clean(configPath)
+	var candidate string
+	if filepath.IsAbs(cleaned) {
+		candidate = cleaned
+	} else {
+		candidate = filepath.Join(root, cleaned)
+	}
+
+	absCandidate, err := filepath.Abs(candidate)
+	if err != nil {
+		return configPathInfo{}, fmt.Errorf("resolving absolute config path: %w", err)
+	}
+
+	rel, err := ensureWithinRoot(absCandidate, root)
+	if err != nil {
+		return configPathInfo{}, err
+	}
+
+	if err := ensureNoSymlink(absCandidate); err != nil {
+		return configPathInfo{}, err
+	}
+
+	ext := strings.ToLower(filepath.Ext(absCandidate))
+	if ext != ".yaml" && ext != ".yml" {
+		return configPathInfo{}, fmt.Errorf("config path %s must use .yaml or .yml extension", configPath)
+	}
+
+	return configPathInfo{
+		Absolute: absCandidate,
+		Root:     root,
+		Relative: rel,
+	}, nil
+}
+
+func determineConfigRoot() (string, error) {
+	root := os.Getenv(configRootEnvVar)
+	if root == "" {
+		cwd, err := os.Getwd()
+		if err != nil {
+			return "", fmt.Errorf("determining config root: %w", err)
+		}
+		root = cwd
+	}
+
+	absRoot, err := filepath.Abs(filepath.Clean(root))
+	if err != nil {
+		return "", fmt.Errorf("resolving config root: %w", err)
+	}
+
+	return absRoot, nil
+}
+
+func ensureWithinRoot(target, root string) (string, error) {
+	rel, err := filepath.Rel(root, target)
+	if err != nil {
+		return "", fmt.Errorf("config path resolution failed: %w", err)
+	}
+
+	if rel == ".." || strings.HasPrefix(rel, ".."+string(os.PathSeparator)) {
+		return "", fmt.Errorf("config path %s escapes allowed root %s", target, root)
+	}
+
+	rel = filepath.ToSlash(rel)
+	if rel == "." {
+		return "", fmt.Errorf("config path must not reference root directory directly")
+	}
+	if !fs.ValidPath(rel) {
+		return "", fmt.Errorf("config path %s is not a valid filesystem path", rel)
+	}
+
+	return rel, nil
+}
+
+func ensureNoSymlink(path string) error {
+	info, err := os.Lstat(path)
+	if err != nil {
+		if errors.Is(err, fs.ErrNotExist) {
+			return nil
+		}
+		return fmt.Errorf("stat config file: %w", err)
+	}
+
+	if info.Mode()&os.ModeSymlink != 0 {
+		return fmt.Errorf("config path %s must not be a symbolic link", path)
+	}
+
+	return nil
+}
+
+func readConfigFile(info configPathInfo) ([]byte, error) {
+	if err := ensureNoSymlink(info.Absolute); err != nil {
+		return nil, err
+	}
+
+	return fs.ReadFile(os.DirFS(info.Root), info.Relative)
 }
