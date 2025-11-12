@@ -153,6 +153,7 @@ sinks:
 			// Create temporary config file
 			tempDir := t.TempDir()
 			configPath := filepath.Join(tempDir, "test-config.yaml")
+			t.Setenv("TTR_CONFIG_ROOT", tempDir)
 			if err := os.WriteFile(configPath, []byte(tt.config), 0644); err != nil {
 				t.Fatalf("Failed to write config file: %v", err)
 			}
@@ -173,6 +174,7 @@ func TestLoadConfig(t *testing.T) {
 	// Create a temporary config file
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "test-config.yaml")
+	t.Setenv("TTR_CONFIG_ROOT", tempDir)
 
 	configContent := `
 ttr:
@@ -258,6 +260,7 @@ func TestLoadConfigWithDefaults(t *testing.T) {
 	// Create a minimal config file
 	tempDir := t.TempDir()
 	configPath := filepath.Join(tempDir, "minimal-config.yaml")
+	t.Setenv("TTR_CONFIG_ROOT", tempDir)
 
 	configContent := `
 providers:
@@ -392,6 +395,7 @@ sinks:
 		t.Run(tt.name, func(t *testing.T) {
 			tempDir := t.TempDir()
 			configPath := filepath.Join(tempDir, "test-config.yaml")
+			t.Setenv("TTR_CONFIG_ROOT", tempDir)
 
 			if err := os.WriteFile(configPath, []byte(tt.config), 0644); err != nil {
 				t.Fatalf("Failed to write config file: %v", err)
@@ -518,5 +522,39 @@ func TestGetEnabledSinks(t *testing.T) {
 	}
 	if names["mongodb"] {
 		t.Error("Expected mongodb to be disabled")
+	}
+}
+
+func TestLoadConfigRejectsPathTraversal(t *testing.T) {
+	rootDir := t.TempDir()
+	outsideDir := t.TempDir()
+	t.Setenv("TTR_CONFIG_ROOT", rootDir)
+
+	evilConfig := `
+providers:
+  - name: "ecobee"
+    enabled: true
+    settings:
+      client_id: "test"
+      refresh_token: "test"
+
+sinks:
+  - name: "elasticsearch"
+    enabled: true
+    settings:
+      url: "http://localhost:9200"
+`
+
+	absoluteEvilPath := filepath.Join(outsideDir, "evil.yaml")
+	if err := os.WriteFile(absoluteEvilPath, []byte(evilConfig), 0644); err != nil {
+		t.Fatalf("Failed to write evil config: %v", err)
+	}
+
+	if _, err := LoadConfig(absoluteEvilPath); err == nil {
+		t.Fatal("expected error when loading config outside allowed root, got nil")
+	}
+
+	if _, err := LoadConfig("../evil.yaml"); err == nil {
+		t.Fatal("expected error when loading config with relative traversal, got nil")
 	}
 }
