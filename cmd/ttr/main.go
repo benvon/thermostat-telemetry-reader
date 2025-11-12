@@ -19,19 +19,18 @@ import (
 )
 
 var (
-	configFile = flag.String("config", "config.yaml", "Path to configuration file")
-	version    = flag.Bool("version", false, "Show version information")
+	configFile  = flag.String("config", "config.yaml", "Path to configuration file")
+	versionFlag = flag.Bool("version", false, "Show version information")
 )
 
-const (
-	appName    = "thermostat-telemetry-reader"
-	appVersion = "1.0.0"
-)
+const appName = "thermostat-telemetry-reader"
+
+var appVersion = "dev"
 
 func main() {
 	flag.Parse()
 
-	if *version {
+	if *versionFlag {
 		fmt.Printf("%s version %s\n", appName, appVersion)
 		os.Exit(0)
 	}
