@@ -15,7 +15,7 @@ builds:
     binary: "{{ .ProjectName }}"
 
     # Entry point for the application
-    main: ./
+    main: ./cmd/ttr/main.go
 
     # Target environments
     goos:
