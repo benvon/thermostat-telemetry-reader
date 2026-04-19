@@ -1,0 +1,21 @@
+name: quality
+
+on:
+  pull_request:
+    branches: [main]
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+  id-token: write
+
+jobs:
+  quality:
+    uses: benvon/reusable-workflows/.github/workflows/go-quality.yml@0a878c63c5a17372ecd27a1fd1fffd7c1b88e5d3
+    with:
+      quality_command: make ci-local
+      coverage_file: coverage.out
+      upload_codecov: true
+      codecov_flags: unittests
+      codecov_name: codecov-umbrella
