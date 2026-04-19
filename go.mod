@@ -3,7 +3,7 @@ module github.com/benvon/thermostat-telemetry-reader
 go 1.25.9
 
 require (
-	github.com/mattn/go-sqlite3 v1.14.41
+	github.com/mattn/go-sqlite3 v1.14.42
 	github.com/spf13/viper v1.21.0
 	gopkg.in/yaml.v3 v3.0.1
 )
