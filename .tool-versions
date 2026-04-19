@@ -1,4 +1,4 @@
-golang 1.25.5
+golang 1.25.9
 golangci-lint 2.6.1
 gosec 2.22.10
 govulncheck 1.1.4
