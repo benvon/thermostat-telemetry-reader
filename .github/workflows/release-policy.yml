@@ -11,6 +11,6 @@ permissions:
 
 jobs:
   release-policy:
-    uses: benvon/reusable-workflows/.github/workflows/release-policy.yml@3b5619c1197c291cc1aff9506cdc397717868dcc
+    uses: benvon/reusable-workflows/.github/workflows/release-policy.yml@f70796de0a6527dbed267a64835c3cc81b8144e0
     with:
       pull_request_number: ${{ github.event.pull_request.number }}
